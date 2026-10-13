@@ -1,6 +1,6 @@
 # axMap 작업 규칙
 
-axMap은 AI의 작업을 사람이 이해하고 제어하는 도구다. 산문은 `axMap`, 식별자와 명령은 `axmap`, npm 패키지는 `axmap-cli`를 쓴다.
+axMap은 여러 AI 에이전트의 작업 경로를 선점하고 충돌을 예방하는 CLI 도구다. 현재 개발 범위는 CLI와 MCP를 통한 협업 기능이다. 코드 분석·지도·코퍼스 기준 도구로의 확장은 보류한다. 범위 결정은 `docs/DECISIONS.md`의 D21을 따른다. 산문은 `axMap`, 식별자와 명령은 `axmap`, npm 패키지는 `axmap-cli`를 쓴다.
 
 개발 기준은 `main`이다. 이 저장소의 소스 확인에는 `node bin/axmap.mjs`를 사용한다. PATH의 `axmap`은 npm 설치본일 수 있다.
 
