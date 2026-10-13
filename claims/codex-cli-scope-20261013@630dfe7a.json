@@ -1,0 +1,15 @@
+{
+  "agent": "codex-cli-scope-20261013",
+  "task": "cli-scope",
+  "intent": "README를 CLI 협업 도구 중심으로 정리하고 코드 분석 확장을 보류한다",
+  "actor": null,
+  "session": "codex-cli-scope-20261013",
+  "since": "2026-10-13T13:14:44.487Z",
+  "ttlMs": 7200000,
+  "paths": [
+    "CLAUDE.md",
+    "README.md",
+    "docs/DECISIONS.md",
+    "docs/THREADS.md"
+  ]
+}
