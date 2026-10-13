@@ -1,0 +1,15 @@
+{
+  "agent": "codex-readme-i18n-20261013",
+  "task": "readme-i18n",
+  "intent": "영문과 한국어 README 및 언어 선택 버튼을 추가한다",
+  "actor": null,
+  "session": "codex-readme-i18n-20261013",
+  "since": "2026-10-13T13:57:25.814Z",
+  "ttlMs": 7200000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "docs/assets/readme-en.svg",
+    "docs/assets/readme-ko.svg"
+  ]
+}
