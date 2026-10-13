@@ -1,0 +1,13 @@
+.axmap/
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/build/
+.env
+.env.*
+!.env.example
+*.log
+corpus-data/baseline.json
+corpus-data/repos.jsonl
+corpus-data/seen.txt
+corpus-data/skips.jsonl

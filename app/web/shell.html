@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>axMap</title>
+<link rel="stylesheet" href="shell.css">
+</head>
+<!--
+  새 껍데기 — 여기에 UI 를 새로 쌓는다.
+
+  🔴 옛 화면(`index.html` · `overlay.js` 3,527줄)은 **지웠다.**
+
+  한동안 `/classic` 으로 남겨 뒀는데, 남겨 두는 것 자체가 "저기 있으니 나중에
+  가져다 쓰자" 는 여지를 만든다. 재활용할 것이 아니면 여지를 남기지 않는다.
+
+  벤치 3회차의 측정 대상은 git 에 그대로 있다 —
+  `git show 02b6dfc:app/web/overlay.js` 로 그 시점 그대로 꺼낼 수 있다.
+  작업 트리에서 지운 것이 기준선을 없앤 것은 아니다.
+-->
+<body>
+
+<!--
+  ── 툴바 ──────────────────────────────────────────────────────────────────
+
+  🔴 VS Code 의 흐름을 그대로 빌린다.
+
+  사람들이 이미 아는 순서가 있다 — 창 맨 위에 메뉴가 있고, 거기서 `열기` 로
+  시작한다. 우리가 다른 순서를 발명하면 배울 것이 하나 더 늘어난다.
+  온보딩 실험이 여섯 회차 내내 말한 것이 "무엇을 눌러야 할지 모르겠다" 였다.
+
+  데스크톱에서는 이 막대가 **창의 제목표시줄을 대신한다**(`frame: false`).
+  그래서 빈 곳은 끌어서 창을 옮길 수 있어야 하고(`-webkit-app-region: drag`),
+  버튼은 반대로 끌기에서 빼야 한다 — 안 빼면 눌리지 않는다.
+-->
+<header id="bar">
+  <!--
+    🔴 한 줄을 새로 쓰지 않는다. **이 줄이 곧 창의 제목표시줄이다.**
+
+    메뉴 이름 셋(`저장소`·`보기`·`도움말`)을 글자로 늘어놓으면 창 위에 띠가 하나
+    더 생긴 것처럼 보인다. 아이콘으로 대신할 수 있는 것은 아이콘으로 바꾸고,
+    나머지는 `☰` 하나에 접었다.
+
+    글자로 남긴 것은 **지금 보고 있는 저장소** 하나뿐이다. VS Code 가 그 자리에
+    파일 이름을 두는 것과 같은 이유다 — 창 제목은 "무엇을 보고 있나" 여야 한다.
+
+    아이콘은 인라인 SVG 다. 아이콘 글꼴도 이미지도 안 쓴다(의존성 0).
+    `currentColor` 를 쓰므로 색은 CSS 토큰 하나로 따라온다.
+  -->
+  <button class="ico" data-menu="all" aria-label="메뉴" title="메뉴">
+    <svg viewBox="0 0 16 16"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+  </button>
+
+  <button class="ico" id="sidetoggle" aria-label="사이드바" title="사이드바 접기·펴기 (Ctrl+B)">
+    <svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10"/></svg>
+  </button>
+
+  <button class="ico" id="openrepo" aria-label="저장소 열기" title="저장소 열기 (Ctrl+O)">
+    <svg viewBox="0 0 16 16"><path d="M2 12.5v-9h4l1.5 2h6.5v7z"/></svg>
+  </button>
+
+  <div id="where"></div>
+
+  <!-- 데스크톱에서만 보인다. 브라우저에는 창 단추가 이미 있다. -->
+  <div id="wctl" hidden>
+    <button data-win="min" aria-label="최소화">
+      <svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg>
+    </button>
+    <button data-win="max" aria-label="최대화">
+      <svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>
+    </button>
+    <button data-win="close" aria-label="닫기">
+      <svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="drop" hidden></div>
+
+<main id="app">
+
+  <!-- ── 왼쪽 · 채팅 및 작업 ─────────────────────────────────────────── -->
+  <aside id="side">
+    <div id="tabs">
+      <button class="tab on" data-mode="watch">감시</button>
+      <button class="tab" data-mode="understand">이해</button>
+    </div>
+
+    <button id="new">＋<span>새 대화</span></button>
+
+    <div class="sec">채팅 및 작업</div>
+    <div id="chats"></div>
+
+    <div id="foot">
+      <span id="repo">—</span>
+      <span id="agent"></span>
+    </div>
+  </aside>
+
+  <div class="gut" data-pane="side"></div>
+
+  <!-- ── 가운데 · 프로젝트 전체 그래프가 들어올 자리 ─────────────────── -->
+  <section id="center">
+    <div id="stage"></div>
+  </section>
+
+  <div class="gut" data-pane="chat"></div>
+
+  <!-- ── 오른쪽 · 대화 (겉은 채팅, 속은 CLI 프로세스) ────────────────── -->
+  <section id="chat">
+    <div id="head">
+      <span id="title"></span>
+      <button id="stop" hidden>중단</button>
+    </div>
+
+    <!--
+      🔴 AI 가 고친 파일. 접히지 않는다.
+      터미널의 겉모습은 감춰도 결과를 감추면 D1 의 F2 를 이 제품이 직접 만들어낸다.
+    -->
+    <div id="touched" hidden></div>
+
+    <div id="thread"></div>
+
+    <div id="hello">
+      <div class="mark">✳</div>
+      <h1>무엇을 도와드릴까요</h1>
+    </div>
+
+    <div id="composer">
+      <textarea id="input" rows="1" placeholder="오늘 어떤 도움을 드릴까요?" spellcheck="false"></textarea>
+      <div class="row">
+        <span id="note"></span>
+        <button id="send" aria-label="보내기">↑</button>
+      </div>
+    </div>
+
+    <div id="tail"></div>
+  </section>
+
+</main>
+
+<!--
+  ── 처음 오는 사람 ────────────────────────────────────────────────────────
+
+  🔴 바로 "무엇을 도와드릴까요" 를 띄우지 않는다.
+
+  이 앱은 사용자의 AI CLI 를 빌려 쓴다. 그런데 그 사람이 claude 를 쓰는지 agy 를
+  쓰는지 codex 를 쓰는지 우리는 모른다. 모르는 채로 입력창부터 띄우면, 첫 프롬프트를
+  보낸 뒤에야 "그 CLI 가 없다"가 드러난다 — 터미널을 감춰 놨기 때문에 사용자에게는
+  그냥 **아무 일도 안 일어난 것**으로 보인다. 그 침묵이 이 설계의 가장 위험한 실패다.
+
+  그래서 회원가입처럼 **먼저 묻는다.** 두 걸음이면 끝난다.
+-->
+<div id="onboard" hidden>
+  <div class="card">
+    <button id="oclose" aria-label="닫기" title="닫기 (Esc)">✕</button>
+    <div class="steps"><i class="on"></i><i></i></div>
+
+    <section data-step="1">
+      <div class="mark">✳</div>
+      <h2>어떤 AI 로 일하시나요</h2>
+      <p>axMap 은 이미 쓰고 계신 CLI 를 그대로 빌려 씁니다.<br>새로 로그인할 필요가 없습니다.</p>
+      <div id="picks"></div>
+      <div class="act"><button id="s1next" disabled>다음</button></div>
+    </section>
+
+    <section data-step="2" hidden>
+      <div class="mark">✳</div>
+      <h2>어떤 저장소를 보시겠어요</h2>
+      <!--
+        🔴 git 주소를 첫째로 둔다. 로컬 폴더가 아니라.
+
+        이 도구가 답하는 질문은 "이 저장소를 내가 이해할 수 있나" 이고, 그 질문은
+        **남의 저장소**에서 훨씬 절박하다. 그리고 주소가 있어야 선점(claim)이
+        어느 저장소의 것인지 말할 수 있다 — 로컬 경로만 있으면 사람마다 다르다.
+
+        github 만이 아니다. 사내·학교 GitLab 도 그대로 받는다
+        (`app/lib/fetchrepo.mjs` 의 `isRemote` 참고).
+      -->
+      <p>git 주소를 넣으면 받아서 분석합니다.<br>github · gitlab · 사내 저장소 모두 됩니다.</p>
+      <div class="open">
+        <input id="url" type="text" spellcheck="false"
+               placeholder="https://github.com/사용자/저장소">
+        <button id="go">열기</button>
+      </div>
+      <div id="omsg"></div>
+      <div class="act">
+        <button id="s2back" class="ghost">뒤로</button>
+        <button id="skip" class="ghost">지금 열려 있는 저장소로 시작</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="module" src="shell.js"></script>
+</body>
+</html>

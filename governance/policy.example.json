@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "voters": [
+    {
+      "id": "alice",
+      "email": "alice@example.com"
+    },
+    {
+      "id": "bob",
+      "email": "bob@example.com"
+    },
+    {
+      "id": "carol",
+      "email": "carol@example.com"
+    }
+  ],
+  "amendment": {
+    "paths": [
+      "governance/policy.json"
+    ],
+    "threshold": 3
+  },
+  "default": {
+    "threshold": 2
+  },
+  "rules": [],
+  "succession": {
+    "window_days": 90,
+    "top": 3
+  }
+}

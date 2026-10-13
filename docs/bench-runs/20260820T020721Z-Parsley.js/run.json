@@ -1,0 +1,66 @@
+{
+ "runId": "20260820T020721Z-Parsley.js",
+ "repo": "C:\\Users\\SSAFY\\AppData\\Local\\Temp\\blastmap-eval\\Parsley.js",
+ "port": 7860,
+ "at": "2026-08-20T02:07:45.383Z",
+ "views": [
+  {
+   "name": "01-첫화면",
+   "url": "http://127.0.0.1:7860/",
+   "file": "shots\\01-첫화면.png"
+  },
+  {
+   "name": "02-흐름1-무엇을하는물건",
+   "url": "http://127.0.0.1:7860/?step=1",
+   "file": "shots\\02-흐름1-무엇을하는물건.png"
+  },
+  {
+   "name": "03-흐름2-진입점",
+   "url": "http://127.0.0.1:7860/?step=2",
+   "file": "shots\\03-흐름2-진입점.png"
+  },
+  {
+   "name": "04-흐름3-계층",
+   "url": "http://127.0.0.1:7860/?step=3",
+   "file": "shots\\04-흐름3-계층.png"
+  },
+  {
+   "name": "05-흐름4-활발하고위험한곳",
+   "url": "http://127.0.0.1:7860/?step=4",
+   "file": "shots\\05-흐름4-활발하고위험한곳.png"
+  },
+  {
+   "name": "06-기능축",
+   "url": "http://127.0.0.1:7860/?unit=feature",
+   "file": "shots\\06-기능축.png"
+  },
+  {
+   "name": "07-감시-누가무엇을",
+   "url": "http://127.0.0.1:7860/?watch=1",
+   "file": "shots\\07-감시-누가무엇을.png"
+  },
+  {
+   "name": "g1-그림만-계층",
+   "url": "http://127.0.0.1:7860/?panel=off&view=graph&step=3",
+   "viz": true,
+   "file": "shots\\g1-그림만-계층.png"
+  },
+  {
+   "name": "g2-그림만-기능축",
+   "url": "http://127.0.0.1:7860/?panel=off&view=graph&unit=feature",
+   "viz": true,
+   "file": "shots\\g2-그림만-기능축.png"
+  },
+  {
+   "name": "g3-그림만-감시",
+   "url": "http://127.0.0.1:7860/?panel=off&view=graph&watch=1",
+   "viz": true,
+   "file": "shots\\g3-그림만-감시.png"
+  }
+ ],
+ "personas": [
+  "viz",
+  "text",
+  "both"
+ ]
+}

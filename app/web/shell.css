@@ -1,0 +1,538 @@
+/*
+  새 껍데기의 스타일.
+
+  🔴 `style.css` 와 **따로 둔다.** 그쪽은 기존 화면(`/classic`)의 것이고
+  검은 배경에 밀도 높은 목록을 전제로 짜여 있다. 한 파일에 두 방향을 담으면
+  한쪽을 고칠 때마다 다른 쪽이 깨진다.
+
+  이 화면의 방향은 하나다 — **여백**. 기능을 덜어낸 자리를 다시 채우지 않는다.
+*/
+
+/**
+ * 색과 치수는 Claude 브랜드 토큰에서 가져왔다.
+ * 출처: github.com/ricocc/brands-design-md · brands/claude/variables.css
+ *
+ * 눈으로 고른 값이 아니라 **출처가 있는 값**이라는 것이 요점이다.
+ * 고칠 일이 생기면 여기서 고치고, 쓰는 쪽은 토큰 이름만 쓴다 —
+ * 하드코딩된 색이 한 곳이라도 남으면 다음에 바꿀 때 그것만 안 바뀐다.
+ */
+:root {
+  --bg: #faf9f5;            /* canvas */
+  --side: #f5f0e8;          /* surface-soft */
+  --card: #efe9de;          /* surface-card */
+  --ink: #141413;           /* ink — 제목 */
+  --ink2: #6c6a64;          /* muted */
+  --ink3: #8e8b82;          /* muted-soft */
+  --line: #e6dfd8;          /* hairline */
+  --hover: #efe9de;
+  --accent: #cc785c;        /* primary */
+  --accent-down: #a9583e;   /* primary-active */
+  --accent-tint: #f7ede8;   /* primary 를 canvas 위에 옅게 깐 것 */
+  --warn: #c64545;          /* error */
+  --on-accent: #ffffff;     /* on-primary — 주황 위에 얹는 글자 */
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  --mono: "JetBrains Mono", "Cascadia Mono", "D2Coding", Consolas, monospace;
+  /**
+   * 🔴 브랜드의 표시용 세리프(Copernicus · Tiempos Headline)는 **안 쓴다.**
+   *
+   * 이 화면은 한국어가 먼저다. 그 서체들은 한글 글리프가 없어서 제목의 한글만
+   * 시스템 서체로 떨어지고, 그러면 한 줄 안에서 라틴과 한글의 인상이 갈린다.
+   * 색은 브랜드를 따르되 서체는 한글이 읽히는 쪽을 고른다.
+   */
+  --ui: "Pretendard", "StyreneB", Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+/**
+ * 🔴 hidden 속성이 항상 이기게 한다.
+ *
+ * hidden 은 UA 스타일시트의 display:none 으로 동작하는데, 우리가 그 요소에
+ * display:flex 를 직접 주면 **작성자 스타일이 이겨서 안 숨는다.**
+ *
+ * 실제로 #onboard 가 그랬다 — hidden = true 를 줘도 온보딩이 화면을 덮은 채
+ * 남아 있었고, 자바스크립트는 아무 오류도 내지 않았다. 눌러 보기 전에는
+ * 알 방법이 없는 종류의 실패다.
+ */
+[hidden] { display: none !important; }
+
+html, body {
+  height: 100%; margin: 0;
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.6 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; cursor: pointer; }
+
+#app { display: flex; height: 100%; }
+
+/* 분할선 — 평소에는 보이지 않고 잡을 때만 드러난다 */
+.gut { width: 1px; flex: none; background: var(--line); cursor: col-resize; position: relative; }
+.gut::after { content: ''; position: absolute; inset: 0 -3px; }
+.gut:hover { background: var(--ink3); }
+
+/* ── 왼쪽 ──────────────────────────────────────────────────────────────── */
+
+#side {
+  width: 260px; min-width: 200px; flex: none;
+  background: var(--side);
+  display: flex; flex-direction: column;
+  padding: 10px;
+}
+
+#tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+.tab {
+  flex: 1; padding: 7px 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink2); font-size: 13px;
+}
+.tab:hover { background: var(--hover); color: var(--ink); }
+.tab.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+#new {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; margin-bottom: 22px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--ink); font-size: 14px; text-align: left;
+}
+#new:hover { background: var(--hover); }
+#new span { flex: 1; }
+
+.sec {
+  font-size: 12px; color: var(--ink3);
+  padding: 0 10px 8px;
+}
+
+#chats { flex: 1; overflow: auto; margin: 0 -4px; }
+.chat {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 8px;
+  font-size: 13px; color: var(--ink2);
+  overflow: hidden; white-space: nowrap;
+}
+.chat:hover { background: var(--hover); color: var(--ink); }
+.chat.on { background: var(--hover); color: var(--ink); }
+.chat .dot {
+  width: 5px; height: 5px; border-radius: 50%; flex: none;
+  border: 1px solid var(--ink3);
+}
+.chat.run .dot { background: var(--accent); border-color: var(--accent); }
+.chat.err .dot { background: var(--warn); border-color: var(--warn); }
+.chat .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.chat .n { font: 10px var(--mono); color: var(--accent); flex: none; }
+.empty { padding: 4px 10px; font-size: 12px; color: var(--ink3); }
+
+#foot {
+  border-top: 1px solid var(--line);
+  padding: 10px 10px 2px; margin-top: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 11px; color: var(--ink3);
+}
+#foot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 가운데 ────────────────────────────────────────────────────────────── */
+
+/*
+  🔴 지금은 비어 있다. 그래프가 들어올 자리다.
+
+  기존 화면의 캔버스를 그대로 옮겨 오지 않은 이유: 그 렌더러는 검은 배경을
+  전제로 색을 고른다(`graph.js` 의 명암·안개). 밝은 바탕에 그대로 얹으면
+  읽히지 않는다. 옮길 때 색 채널을 다시 정하고 옮긴다.
+*/
+#center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; }
+#stage { color: var(--ink3); font-size: 12px; }
+
+/* ── 오른쪽 · 대화 ─────────────────────────────────────────────────────── */
+
+#chat {
+  width: 520px; min-width: 360px; flex: none;
+  display: flex; flex-direction: column; min-height: 0;
+}
+
+#head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 14px 22px 6px; font-size: 13px; color: var(--ink2);
+  min-height: 42px;
+}
+#title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stop {
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink2);
+  border-radius: 7px; padding: 3px 10px; font-size: 12px;
+}
+#stop:hover { color: var(--warn); border-color: var(--warn); }
+
+#touched {
+  flex: none; margin: 0 22px 10px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  font-size: 12px; color: var(--ink2); background: var(--bg);
+}
+#touched b { color: var(--ink); font-weight: 600; }
+#touched .f {
+  display: block; font: 11px var(--mono); color: var(--ink);
+  padding-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+#thread {
+  flex: 1; overflow: auto; padding: 6px 22px 10px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+#thread:empty { flex: 0; padding: 0; }
+
+/* 대화가 없을 때 — 인사말과 입력창이 칸 가운데에 뜬다 */
+#tail { flex: 0; }
+#chat.blank #tail { flex: 1; }
+
+/* 대화가 없을 때의 인사. 스크린샷의 가운데 그 화면이다. */
+#hello {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
+  padding-bottom: 26px; gap: 14px;
+}
+#hello .mark { color: var(--accent); font-size: 26px; line-height: 1; }
+#hello h1 { margin: 0; font-size: 28px; font-weight: 400; letter-spacing: -.01em; }
+
+.msg { font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.msg.user {
+  align-self: flex-end; max-width: 85%;
+  background: var(--side); padding: 10px 15px; border-radius: 16px 16px 4px 16px;
+}
+.msg.assistant { align-self: flex-start; }
+.msg.error {
+  align-self: flex-start; color: var(--warn); font-size: 13px;
+  border-left: 2px solid var(--warn); padding-left: 10px;
+}
+.msg.note { align-self: center; color: var(--ink3); font-size: 12px; }
+
+/* 도구 한 줄 — 대화가 아니라 **행동**이라 다르게 그린다 */
+.msg.tool {
+  align-self: flex-start; display: flex; gap: 8px; align-items: baseline;
+  font: 11px/1.5 var(--mono); color: var(--ink3); max-width: 100%;
+}
+.msg.tool .t { flex: none; }
+.msg.tool .a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg.tool.edits .t { color: var(--accent); }
+.msg.tool.edits .a { color: var(--ink); }
+
+/* 계측·잡음은 버리지 않고 접어 둔다 */
+details.msg { align-self: flex-start; max-width: 100%; }
+details.msg summary { font-size: 11px; color: var(--ink3); cursor: pointer; list-style: none; }
+details.msg pre {
+  font: 11px var(--mono); color: var(--ink2); white-space: pre-wrap;
+  word-break: break-all; margin: 6px 0 0;
+}
+
+.think { align-self: flex-start; color: var(--ink3); font-size: 13px; }
+.think::after { content: ''; animation: d 1.4s steps(4, end) infinite; }
+@keyframes d { 0% { content: '' } 25% { content: '.' } 50% { content: '..' } 75% { content: '...' } }
+
+/* ── 입력 ──────────────────────────────────────────────────────────────── */
+
+#composer {
+  flex: none; margin: 0 22px 22px; padding: 14px 14px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--bg);
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+#composer:focus-within { border-color: var(--ink3); }
+#input {
+  width: 100%; border: 0; outline: none; resize: none; background: transparent;
+  font: 14px/1.6 var(--ui); color: var(--ink); max-height: 200px;
+}
+#input::placeholder { color: var(--ink3); }
+#composer .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+#note { flex: 1; font-size: 11px; color: var(--ink3); }
+#send {
+  flex: none; width: 30px; height: 30px; border-radius: 9px; border: 0;
+  background: var(--accent); color: var(--on-accent); font-size: 14px;
+}
+#send:hover { background: var(--accent-down); }
+#send:disabled { background: var(--line); color: var(--ink3); cursor: default; }
+
+/* ══ 창 테두리 = 툴바 ═══════════════════════════════════════════════════════
+
+   🔴 이 줄은 **새로 만든 줄이 아니라 창의 제목표시줄**이다 (`frame: false`).
+
+   그래서 높이를 32px 로 낮추고 아래 테두리를 없앴다. 사이드바와 같은 색이라
+   왼쪽 위 모서리가 한 덩어리로 이어져 보인다 — 띠가 하나 더 얹힌 것처럼
+   보이면 그 줄은 낭비다.
+
+   빈 곳은 끌어서 창을 옮길 수 있어야 하고(`app-region: drag`), 버튼은 반대로
+   끌기에서 빼야 한다 — 안 빼면 눌리지 않는다. 실제로 그렇게 안 눌렸다.
+   ────────────────────────────────────────────────────────────────────────── */
+
+body { display: flex; flex-direction: column; }
+
+#bar {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  height: 32px; padding-left: 6px;
+  background: var(--side);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* 아이콘 단추 — 인라인 SVG. 아이콘 글꼴도 이미지도 안 쓴다 */
+.ico {
+  -webkit-app-region: no-drag;
+  display: grid; place-items: center;
+  width: 30px; height: 26px; padding: 0;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--ink2);
+}
+.ico:hover, .ico.open { background: var(--hover); color: var(--ink); }
+.ico svg {
+  width: 16px; height: 16px;
+  fill: none; stroke: currentColor; stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+/* 폴더는 채워야 폴더로 읽힌다 */
+#openrepo svg { fill: currentColor; fill-opacity: .13; }
+
+/*
+  지금 보고 있는 저장소. 창 제목이 놓이는 자리이고, **글자로 남긴 유일한 것**이다.
+  VS Code 가 여기에 파일 이름을 두는 것과 같은 이유 — 창 제목은 "무엇을 보고 있나" 다.
+*/
+#where {
+  flex: 1; text-align: center; font-size: 11px; color: var(--ink3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 12px;
+}
+
+#wctl { display: flex; -webkit-app-region: no-drag; }
+#wctl button {
+  display: grid; place-items: center;
+  width: 44px; height: 32px; border: 0; background: transparent; color: var(--ink2);
+}
+#wctl svg {
+  width: 12px; height: 12px;
+  fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round;
+}
+#wctl button:hover { background: var(--hover); color: var(--ink); }
+#wctl button[data-win="close"]:hover { background: var(--warn); color: var(--on-accent); }
+
+/* 메뉴 펼침 */
+#drop {
+  position: fixed; z-index: 40; min-width: 220px; padding: 5px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+#drop button {
+  display: flex; width: 100%; align-items: center; gap: 10px;
+  border: 0; background: transparent; color: var(--ink);
+  font-size: 13px; padding: 7px 10px; border-radius: var(--r-sm); text-align: left;
+}
+#drop button:hover { background: var(--hover); }
+#drop button:disabled { color: var(--ink3); }
+#drop .k { margin-left: auto; font: 10px var(--mono); color: var(--ink3); }
+#drop hr { border: 0; border-top: 1px solid var(--line); margin: 5px 2px; }
+
+#app { flex: 1; min-height: 0; }
+
+/* 사이드바 접기 — 가운데 칸에 자리를 준다 */
+body.no-side #side,
+body.no-side .gut[data-pane="side"] { display: none; }
+
+/* ══ 처음 오는 사람 ═════════════════════════════════════════════════════════ */
+
+#onboard {
+  position: fixed; inset: 0; z-index: 60;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+#onboard .card { width: 100%; max-width: 460px; text-align: center; }
+#onboard .mark { color: var(--accent); font-size: 26px; margin-bottom: 12px; }
+#onboard h2 { margin: 0 0 8px; font-size: 24px; font-weight: 400; }
+#onboard p { margin: 0 0 22px; font-size: 13px; color: var(--ink2); line-height: 1.8; }
+
+.steps { display: flex; gap: 6px; justify-content: center; margin-bottom: 26px; }
+.steps i { width: 22px; height: 3px; border-radius: 2px; background: var(--line); }
+.steps i.on { background: var(--accent); }
+
+/* CLI 고르기 — 설치·로그인 상태를 카드에 그대로 적는다 */
+#picks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+.pick {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg); text-align: left;
+}
+.pick:hover:not(:disabled) { border-color: var(--ink3); }
+.pick.on { border-color: var(--accent); background: var(--accent-tint); }
+.pick:disabled { opacity: .5; cursor: default; }
+.pick .nm { flex: 1; font-size: 14px; color: var(--ink); }
+.pick .st { font-size: 11px; color: var(--ink3); }
+.pick .st.ok { color: var(--accent); }
+.pick .st.warn { color: #a8742a; }
+
+.open { display: flex; gap: 8px; margin-bottom: 12px; }
+#url {
+  flex: 1; padding: 11px 14px; border: 1px solid var(--line); border-radius: var(--r-lg);
+  font: 13px var(--ui); color: var(--ink); outline: none; background: var(--bg);
+}
+#url:focus { border-color: var(--ink3); }
+#go, #s1next {
+  padding: 11px 20px; border: 0; border-radius: 11px;
+  background: var(--accent); color: var(--on-accent); font-size: 13px;
+}
+#go:disabled, #s1next:disabled { background: var(--line); color: var(--ink3); cursor: default; }
+#pick {
+  width: 100%; padding: 11px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg);
+  color: var(--ink2); font-size: 13px;
+}
+#pick:hover { border-color: var(--ink3); color: var(--ink); }
+
+#omsg { min-height: 20px; font-size: 12px; color: var(--ink2); margin-bottom: 14px; }
+#omsg.err { color: var(--warn); }
+
+.act { display: flex; gap: 8px; justify-content: center; align-items: center; }
+.ghost {
+  border: 0; background: transparent; color: var(--ink3);
+  font-size: 12px; padding: 8px 10px; border-radius: 8px;
+}
+.ghost:hover { background: var(--hover); color: var(--ink2); }
+
+/* ══ 모달 ═══════════════════════════════════════════════════════════════════
+   처음 오는 사람에게는 화면 전체를 쓰고, 그 뒤 `저장소 열기` 로 부를 때는
+   모달로 뜬다. 같은 markup 을 쓰되 겉모습만 바꾼다 — 두 벌을 만들면
+   한쪽만 고쳐서 어긋난다.
+   ────────────────────────────────────────────────────────────────────────── */
+
+#onboard.as-modal { background: rgba(20, 20, 19, .34); }
+#onboard.as-modal .card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+  padding: 34px 34px 26px;
+  max-width: 480px;
+}
+/* 모달일 때는 걸음 표시가 뜻이 없다 — 한 걸음짜리다 */
+#onboard.as-modal .steps { display: none; }
+
+#oclose {
+  position: absolute; top: 14px; right: 16px;
+  border: 0; background: transparent; color: var(--ink3);
+  font-size: 15px; line-height: 1; padding: 6px 8px; border-radius: var(--r-sm);
+}
+#oclose:hover { background: var(--hover); color: var(--ink); }
+#onboard:not(.as-modal) #oclose { display: none; }
+#onboard .card { position: relative; }
+
+/* ══ 가운데 칸 — ladder 를 번호 카드로 ══════════════════════════════════════
+   조판 규율은 Zap 편집기에서 가져왔다. 실측값과 근거는 stage.js 머리말과
+   docs/RESEARCH-FLOWCANVAS.md 1.1 에 있다.
+   ────────────────────────────────────────────────────────────────────────── */
+
+#center { flex: 1; min-width: 0; display: block; overflow: auto; }
+
+#stage { position: relative; padding: 22px 26px 40px; min-height: 100%; }
+#stage.loading, #stage.note {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink3); font-size: 12px; text-align: center; padding: 40px;
+}
+
+/* 선은 카드 아래에 깔린다. 클릭을 막지 않는다. */
+.wires { position: absolute; left: 0; top: 0; pointer-events: none; }
+/*
+  🔴 선이 조용해야 한다. 실측한 Zapier 연결선은 바탕 대비 4.4:1 밖에 안 된다 —
+  주인공은 카드의 글자이고 선은 배경 구조물이라는 선언이다.
+*/
+.w { fill: none; stroke: var(--line); stroke-width: 1.5; }
+
+.board { position: relative; }
+
+/* ── 겹 ─────────────────────────────────────────────────────────────────── */
+
+.layer { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 34px; }
+
+.lhead {
+  flex: none; width: 54px; padding-top: 4px; text-align: right;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.lno { font-size: 12px; color: var(--ink); }
+.lcount { font-size: 10px; color: var(--ink3); }
+
+.cols { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: flex-start; }
+
+/* ── 묶음 ───────────────────────────────────────────────────────────────── */
+
+.grp { display: flex; flex-direction: column; gap: 8px; }
+
+/* 가지 머리의 알약 칩. Zap 편집기가 조건문을 두는 자리에 우리는 디렉터리를 둔다. */
+.chip {
+  display: inline-flex; align-items: baseline; gap: 6px; align-self: flex-start;
+  padding: 3px 10px; border-radius: var(--r-pill, 999px);
+  border: 1px solid var(--line); background: var(--bg);
+  font: 11px var(--mono); color: var(--ink2);
+  max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip .cn { color: var(--accent); font-size: 10px; }
+
+/* ── 카드 ───────────────────────────────────────────────────────────────── */
+
+/*
+  폭을 고정한다. 실측한 Zapier 카드는 폭:높이 = 4.2:1 이고, 카드 사이 세로 여백이
+  카드 높이보다 크다(1.24배). 그 비율이 이 화면이 빽빽하지 않게 느껴지는 이유다.
+*/
+.card {
+  width: 210px; box-sizing: border-box;
+  padding: 8px 11px 9px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg);
+  position: relative; z-index: 1;
+}
+.card:hover { border-color: var(--ink3); }
+.card.aux { opacity: .62; }
+
+.card .r1 {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 10px; color: var(--ink3); margin-bottom: 3px;
+}
+.card .r1 .opens { color: var(--accent); }
+.card .r1 .lines { margin-left: auto; }
+.card .r1 .tag { color: var(--ink3); }
+
+.card .r2 { display: flex; gap: 7px; align-items: baseline; }
+/* 🔴 번호가 이 카드의 정체다. 그림을 안 봐도 이 번호로 서로를 가리킬 수 있다. */
+.card .r2 .no { font: 11px var(--mono); color: var(--ink3); flex: none; }
+.card .r2 .nm {
+  font-size: 13px; color: var(--ink); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card .dir {
+  font: 10px var(--mono); color: var(--ink3); padding-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.more { font-size: 11px; color: var(--ink3); align-self: center; }
+
+.foot2 {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  padding-top: 8px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--ink3);
+}
+/* 자른 것은 잘랐다고 말한다. 조용히 자르면 "이게 전부" 로 읽힌다. */
+.foot2 .warn2 { color: var(--accent); }
+
+/* 프로젝트 고르는 줄 — 모노레포에서 "어디서부터" 의 첫 답이다 */
+.projs {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--line);
+}
+.proj {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  padding: 5px 12px; border-radius: var(--r-pill, 999px);
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink2);
+  font-size: 12px;
+}
+.proj:hover { border-color: var(--ink3); color: var(--ink); }
+.proj.on { border-color: var(--accent); background: var(--accent-tint); color: var(--ink); }
+.proj .pn { font-family: var(--mono); font-size: 11px; }
+.proj .pf { color: var(--accent); font-size: 10px; }
+/* 🔴 선언된 것과 짐작한 것을 눈으로 구분한다 (D5) */
+.proj .guess { color: var(--ink3); font-size: 10px; }
+.pout { font-size: 11px; color: var(--ink3); margin-left: 4px; }
