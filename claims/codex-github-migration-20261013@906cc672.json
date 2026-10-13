@@ -1,12 +1,30 @@
 {
   "agent": "codex-github-migration-20261013",
   "task": "github-migration",
-  "intent": "공개 시작 커밋에 axMap 라이선스를 포함한다",
+  "intent": "공개 axMap 시작 커밋과 독립 검증",
   "actor": null,
   "session": "codex-github-migration-20261013",
-  "since": "2026-10-13T13:05:53.445Z",
-  "ttlMs": 3600000,
+  "since": "2026-10-13T13:06:23.470Z",
+  "ttlMs": 14400000,
   "paths": [
-    "LICENSE"
+    ".claude",
+    ".gitattributes",
+    ".gitignore",
+    "CLAUDE.md",
+    "LICENSE",
+    "README.md",
+    "app",
+    "bin",
+    "corpus",
+    "corpus-data",
+    "demo",
+    "desktop",
+    "docs",
+    "governance",
+    "mcp",
+    "package.json",
+    "src",
+    "test",
+    "tools"
   ]
 }
