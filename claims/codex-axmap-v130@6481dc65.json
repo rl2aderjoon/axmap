@@ -1,0 +1,25 @@
+{
+  "agent": "codex-axmap-v130",
+  "task": "v1.3.0",
+  "intent": "작업 repo 자동 감지 및 장부 자동 준비 구현",
+  "actor": null,
+  "session": "v130-20261015",
+  "since": "2026-10-15T11:45:25.744Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "bin/axmap.mjs",
+    "docs/DECISIONS.md",
+    "docs/INSTALL.md",
+    "docs/SPEC.md",
+    "mcp/README.md",
+    "mcp/SETUP-FOR-AI.md",
+    "mcp/server.mjs",
+    "package.json",
+    "src/repolock.mjs",
+    "src/repotarget.mjs",
+    "test/auto-init.test.mjs",
+    "test/mcp.test.mjs"
+  ]
+}
