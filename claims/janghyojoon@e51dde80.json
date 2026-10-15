@@ -1,0 +1,12 @@
+{
+  "agent": "janghyojoon",
+  "task": "mcp-restart-smoke",
+  "intent": "재시작한 Codex의 MCP 연결 검증. 파일 수정 없이 즉시 반납.",
+  "actor": "agent",
+  "session": "mcp-30380",
+  "since": "2026-10-15T13:30:02.575Z",
+  "ttlMs": 2700000,
+  "paths": [
+    "README.md"
+  ]
+}
