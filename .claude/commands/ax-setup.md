@@ -1,20 +1,18 @@
 ---
-description: axMap — 이 저장소에 axMap 을 붙인다 (내 git 주소를 넣어 초기화)
+description: axMap — 어느 폴더에서든 이 PC에 전역 설치·등록한다
 ---
 
-이 저장소에서 axMap 선점을 쓸 수 있게 만들어줘.
-장부(누가 무엇을 잡고 있는지 적는 곳)를 둘 git 주소: $ARGUMENTS
+이 PC에서 axMap을 전역으로 사용할 수 있게 설정해줘.
+추가 setup 옵션: $ARGUMENTS
 
-1. 지금 폴더가 git 저장소인지 먼저 본다. 아니면 **여기서 멈추고** 사람에게 알린다.
-   axMap 의 장부와 쪽지는 git 의 고아 브랜치로 오간다 — 저장소가 없으면 claim 이
-   아무에게도 안 가면서 조용히 성공한다.
+1. 지금 폴더가 Git 저장소가 아니어도 진행한다. setup은 PC 전역 설치이며 작업 repo는 나중에 CLI를 켠 위치에서 결정한다.
 
 2. Bash 로 아래를 실행한다.
 
-       npx -y axmap-cli@latest setup --remote $ARGUMENTS
+       npx -y axmap-cli@latest setup $ARGUMENTS
 
-   주소를 안 줬으면 `--remote` 째로 빼고 부른다. 그러면 이 저장소의 원격을
-   그대로 쓴다 (하나면 그것, `origin` 이 있으면 `origin`).
+   추가 옵션이 없으면 setup만 실행한다. repo를 지정하거나 현재 폴더를 타겟으로 저장하지 않는다.
+   사용자가 특정 repo의 장부와 커밋 훅까지 미리 준비하길 요청한 경우에만 `--repo <경로>`를 지정한다.
 
    먼저 무엇이 바뀔지만 보고 싶으면 `--dry-run` 을 붙인다. 아무것도 쓰지 않는다.
 
@@ -25,7 +23,6 @@ description: axMap — 이 저장소에 axMap 을 붙인다 (내 git 주소를 �
    - AI CLI 를 **완전히 껐다가 다시 켜야** MCP 도구(`ax_*`)가 뜬다
    - 그 뒤 `/ax-start` 로 시작하면 된다
 
-이미 붙어 있는 저장소라면 `setup` 을 다시 부르지 않고 `ax_status` 로 확인만 한다 —
-`setup` 은 몇 번 돌려도 안전하지만, 이미 되는 것을 다시 설치하는 것은 시간 낭비다.
+설치·업데이트 때 setup을 한 번 실행한다. 이후 repo를 옮길 때는 setup이나 init을 반복하지 않고 그 repo에서 `ax_status` 또는 `ax_claim`을 호출한다.
 
-같은 주소를 넣은 사람끼리 서로의 선점이 보인다. 그게 이 명령이 하는 일의 전부다.
+각 repo의 장부는 첫 조회·선점 때 자동 준비하며, 같은 원격 장부를 공유하는 세션끼리 서로의 선점이 보인다.

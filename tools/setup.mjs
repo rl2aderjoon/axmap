@@ -1,43 +1,9 @@
 #!/usr/bin/env node
 /**
- * `npx axmap setup` 의 본체 — **저장소를 clone 하지 않고** 이 PC 와 이 저장소에
- * axMap 을 붙인다.
- *
- *   npx -y axmap-cli@latest setup
- *   npx -y axmap-cli@latest setup --remote https://lab.ssafy.com/우리팀/우리저장소.git
- *
- * ── 이 파일이 메우는 구멍 ───────────────────────────────────────────────────
- *
- * `mcp/install.sh` · `mcp/install.ps1` 은 이미 "홈에 복사하고 이 PC 의 AI CLI 에
- * 등록한다" 를 한다. 다만 **axMap 파일이 이미 손에 있어야** 시작할 수 있다 —
- * 스크립트만 따로 내려받으면 대놓고 거절한다. 그래서 지금까지 설치의 첫 단계는
- * 언제나 "저장소를 통째로 clone" 이었다.
- *
- * npm 꾸러미가 그 첫 단계를 대신한다. `npx` 가 꾸러미를 받아 풀어 주므로,
- * 이 파일이 도는 시점에는 axMap 원본이 이미 옆에 있다. 여기서는 그 뒤를 잇는다.
- *
- *   1. 이 PC 에 프로그램을 둔다      → mcp/install.{sh,ps1} 에 맡긴다 (다시 안 짠다)
- *   2. 이 PC 의 AI CLI 에 등록한다   → 위와 같음
- *   3. 대상 저장소에 장부를 만든다   → axmap init
- *   4. 커밋 훅을 심는다              → axmap hook install
- *   5. 슬래시 명령을 놓는다          → ~/.claude/commands/ (또는 저장소 안)
- *
- * ── 🔴 git 을 떼어내지 않는다 ───────────────────────────────────────────────
- *
- * 없앤 것은 **"axMap 코드를 받는 수단으로서의 git"**(clone·벤더링·git pull)이지
- * **"협업 백엔드로서의 git"** 이 아니다. 장부와 쪽지는 그대로 고아 브랜치
- * (`axmap/claims` · `axmap/bus`)로 오간다. git push 의 ref CAS(Compare-And-Swap —
- * "내가 읽은 뒤로 바뀐 게 없을 때만 쓴다") 가 직렬화를 공짜로 주기 때문이고,
- * 그것을 버리면 락 서버를 따로 세워야 한다. 그건 다른 제품이다.
- *
- * 그래서 대상이 git 저장소가 아니면 **여기서 멈춘다.** 반쯤 되는 상태로 두면
- * claim 이 아무에게도 안 가면서 조용히 성공한다 — 이 도구에서 제일 나쁜 실패다.
- *
- * ── 종료 코드 ───────────────────────────────────────────────────────────────
- *
- *   0  다 됐다
- *   1  시작할 수 없다 (node 가 낮다 · git 저장소가 아니다 · 이름을 못 정했다)
- *   2  일부가 안 됐다. 무엇이 안 됐는지 !! 줄에 있다
+ * Install axMap globally from any directory. Installation is machine state;
+ * repository ledgers are prepared at runtime in the caller's working repo.
+ * Only explicit project options (--repo / --remote / --commands project)
+ * select a repository during setup. Commit enforcement remains opt-in.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -84,21 +50,21 @@ const has = (n) => argv.includes(n)
 
 if (has('-h') || has('--help')) {
   say(`
-axmap setup — 이 PC 와 이 저장소에 axMap 을 붙인다 (clone 하지 않는다)
+axmap setup — 어느 폴더에서든 이 PC에 axMap을 전역 설치·등록한다
 
   npx -y axmap-cli@latest setup
   npx -y axmap-cli@latest setup --remote <이름 또는 git 주소>
 
-  --repo <경로>        선점을 걸 저장소 (기본: 지금 폴더의 git 루트)
+  --repo <경로>        선택 사항: 이 저장소의 장부·커밋 훅도 명시적으로 준비한다
   --remote <이름|URL>  장부를 둘 원격. git 주소를 주면, 그 주소를 가리키는 원격이
                        없을 때 'axmap' 이라는 이름으로 하나 더한다
-  --name <이름>        장부에 찍힐 내 이름 (기본: git config user.name)
+  --name <이름>        내 이름 (기본: 전역 git config user.name, 명시적 repo는 로컬 값)
   --dest <경로>        프로그램을 둘 자리 (기본: ~/.axmap/app)
   --commands <곳>      슬래시 명령을 둘 자리: global(기본) · project · none
   --hook               프롬프트마다 쪽지를 받는 하네스 훅을 settings.json 에 더한다
                        (기본은 안 더한다 — 매 턴 도는 명령이라 사람이 고를 일이다)
   --no-register        이 PC 의 AI CLI 등록을 건너뛴다
-  --no-ledger          장부·훅을 건드리지 않는다 (프로그램 설치만)
+  --no-ledger          --repo를 지정했어도 장부·커밋 훅을 건드리지 않는다
   --dry-run            아무것도 쓰지 않고 무엇을 할지만 찍는다
 
 종료 코드: 0 성공 · 1 시작 불가 · 2 일부 실패
@@ -132,24 +98,19 @@ ok('node', `v${process.versions.node}`)
 
 // ── 2. 대상 저장소 ──────────────────────────────────────────────────────────
 //
-// 🔴 여기서 멈추는 것이 맞다. 위의 "git 을 떼어내지 않는다" 를 보라.
-const where = path.resolve(flag('--repo') ?? process.cwd())
-if (!fs.existsSync(where)) die(`그런 폴더가 없습니다: ${where}`)
-
-const top = git(['rev-parse', '--show-toplevel'], where)
-if (top.code !== 0) {
-  die(
-    `git 저장소가 아닙니다: ${where}\n\n` +
-      `  axMap 의 장부와 쪽지는 git 의 고아 브랜치로 오갑니다. git push 의 CAS\n` +
-      `  (내가 읽은 뒤로 바뀐 게 없을 때만 쓴다)가 여러 사람의 동시 선점을 줄 세워\n` +
-      `  주기 때문입니다. 저장소가 없으면 그 줄이 없어, claim 이 아무에게도 가지\n` +
-      `  않으면서 조용히 성공합니다.\n\n` +
-      `  먼저 작업할 저장소 안으로 들어간 뒤 다시 실행하세요:\n` +
-      `    cd <저장소>  &&  npx -y axmap-cli@latest setup`,
-  )
+// Installation has no working repository. Only explicit project options use one.
+const projectRequested = has('--repo') || has('--remote') || commandsWhere === 'project'
+if (has('--repo') && !flag('--repo')) die('--repo 뒤에 저장소 경로를 지정하세요.')
+let REPO = null
+if (projectRequested) {
+  const where = path.resolve(flag('--repo') ?? process.cwd())
+  const top = git(['rev-parse', '--show-toplevel'], where)
+  if (top.code !== 0) die(`프로젝트 옵션의 대상이 Git 저장소가 아닙니다: ${where}\n전역 설치만 하려면 --repo, --remote, --commands project 없이 axmap setup을 실행하세요.`)
+  REPO = path.resolve(top.out)
+  ok('저장소', `${REPO}  (명시적 프로젝트 설정)`)
+} else {
+  ok('설치 범위', '이 PC 전체 — 작업 repo는 이후 CLI·MCP 실행 위치에서 결정합니다')
 }
-const REPO = path.resolve(top.out)
-ok('저장소', REPO)
 
 // ── 3. 이름 ─────────────────────────────────────────────────────────────────
 //
@@ -159,8 +120,8 @@ ok('저장소', REPO)
 let name = flag('--name')
 let nameFrom = '--name'
 if (!name) {
-  const g = git(['config', 'user.name'], REPO)
-  if (g.code === 0 && g.out) { name = g.out; nameFrom = 'git config user.name' }
+  const g = git(REPO ? ['config', 'user.name'] : ['config', '--global', 'user.name'], REPO ?? os.homedir())
+  if (g.code === 0 && g.out) { name = g.out; nameFrom = REPO ? 'git config user.name' : 'git config --global user.name' }
 }
 if (!name) {
   try { name = os.userInfo().username; nameFrom = 'OS 사용자 이름' } catch { /* 아래 */ }
@@ -230,7 +191,7 @@ function configureRemote(spec) {
   else ok('장부 원격', `git config axmap.remote = ${picked}`)
 }
 
-configureRemote(flag('--remote'))
+if (REPO) configureRemote(flag('--remote'))
 
 // ── 5. 프로그램을 이 PC 에 둔다 + AI CLI 에 등록한다 ────────────────────────
 //
@@ -250,8 +211,8 @@ function installAndRegister() {
 
   say('')
   const r = win
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Source', SOURCE_ROOT, '-Dest', DEST, '-Name', name], { stdio: 'inherit', windowsHide: true })
-    : spawnSync('bash', [script, '--source', SOURCE_ROOT, '--dest', DEST, '--name', name], { stdio: 'inherit' })
+    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Source', SOURCE_ROOT, '-Dest', DEST, '-Name', name], { cwd: os.homedir(), stdio: 'inherit', windowsHide: true })
+    : spawnSync('bash', [script, '--source', SOURCE_ROOT, '--dest', DEST, '--name', name], { cwd: os.homedir(), stdio: 'inherit' })
   say('')
 
   if (r.status === 0) ok('설치·등록', DEST)
@@ -266,6 +227,7 @@ installAndRegister()
 //    부르면 `hook install` 이 그 임시 경로를 훅에 박고, npx 캐시가 비워지는 순간
 //    훅이 없는 파일을 가리킨다 — 커밋할 때마다 오류가 나는데 원인은 안 보인다.
 function ledgerAndHook() {
+  if (!REPO) { hm('장부·커밋 훅', '작업 repo의 장부는 첫 사용 때 자동 준비합니다. 커밋 훅은 axmap hook install로 선택합니다.'); return }
   if (has('--no-ledger')) { hm('장부', '--no-ledger — 건너뜁니다'); return }
 
   const installed = path.join(DEST, 'bin', 'axmap.mjs')
@@ -482,9 +444,10 @@ say('설치가 끝났습니다.')
 say('')
 say('다음:')
 say('  1. AI CLI 를 완전히 껐다가 다시 켭니다')
-say(`  2. ${REPO} 에서 "/ax-start 로 시작해줘" 또는 "ax_status 로 지금 누가 뭘 잡고 있는지 보여줘"`)
+say('  2. 원하는 Git repo에서 AI CLI를 실행합니다. 실행한 repo에 자동으로 연결됩니다.')
+say('  3. "ax_status로 지금 누가 뭘 잡고 있는지 보여줘"로 시작합니다. repo마다 setup이나 init을 반복하지 않습니다.')
 say('')
 say(`${C.d}  파일을 고치기 전에 claim → 끝나면 release. 그게 전부입니다.${C.x}`)
-say(`${C.d}  점검:  npx -y axmap-cli@latest doctor${C.x}`)
+say(`${C.d}  조회: 원하는 Git repo에서 axmap status${C.x}`)
 say('')
 process.exit(EXIT.OK)

@@ -2778,7 +2778,7 @@ function warnIfStale() {
 
 const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
 
-  axmap setup                        이 PC 와 이 저장소에 axMap 을 붙인다 (첫 한 번)
+  axmap setup                        어느 폴더에서든 이 PC에 전역 설치·등록한다 (첫 한 번)
                                         [--remote <이름|git 주소>] [--name] [--dry-run]
   axmap init                         장부(고아 브랜치 + worktree)를 준비한다
   axmap bus-repair                   쪽지함만 준비한다 (장부는 안 건드린다)

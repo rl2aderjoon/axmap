@@ -4,16 +4,14 @@ Node 20 이상과 git이 필요하다. npm 패키지 이름은 `axmap-cli`, 설�
 
 ```bash
 npm install -g axmap-cli@latest
-cd <사용할-git-저장소>
 axmap setup
-axmap doctor
 ```
 
-`setup`은 AI 도구의 사용자 설정에 MCP를 등록하고, 현재 저장소의 선점 장부와 커밋 훅을 준비한다. 다른 저장소에 연결하려면 `--remote <git-주소>`를 명시한다. 먼저 확인하려면 `--dry-run`을 사용한다. 설정 후 AI 도구를 다시 시작한다.
+Git 저장소 밖을 포함해 어느 폴더에서든 실행한다. `setup`은 이 PC에 프로그램과 전역 명령을 설치하고 AI 도구의 사용자 설정에 MCP를 등록한다. 실행한 폴더의 repo를 초기화하거나 타겟으로 저장하지 않는다. 먼저 확인하려면 `--dry-run`을 사용한다. 설정 후 AI 도구를 다시 시작하고 원하는 Git repo에서 실행한다.
 
-## 1.3.0부터: repo를 옮겨도 init 없이 사용한다
+## 1.3.1부터: 어디서든 setup 한 번, repo는 실행 위치에서 결정한다
 
-기존 설치를 업그레이드할 때는 `npm install -g axmap-cli@latest` 뒤에 작업 repo에서 `axmap setup`을 한 번 실행하고 AI CLI를 재시작한다. 전역 npm 패키지와 등록된 MCP·훅 설치 사본을 함께 갱신하기 위한 단계다.
+기존 설치를 업그레이드할 때는 `npm install -g axmap-cli@latest` 뒤에 어느 폴더에서든 `axmap setup`을 한 번 실행하고 AI CLI를 재시작한다. 전역 npm 패키지와 등록된 MCP·공유 훅 실행 사본을 함께 갱신하기 위한 단계다. 1.3.0에서 남아 있던 setup의 Git repo 필수 조건은 1.3.1에서 제거했다.
 
 설치와 MCP 등록은 한 번만 한다. 이후 201에서 109로 옮겨 AI CLI를 실행하면 해당 세션의 작업 repo를 사용한다. CLI도 현재 폴더의 Git repo를 사용한다. `status`, `claim`, `renew`, `release`, `verify`는 장부가 없으면 자동으로 준비한다. `doctor`는 진단만 한다.
 
@@ -24,6 +22,8 @@ MCP 타겟 우선순위는 `AXMAP_REPO`로 명시한 고정 경로 → 도구의
 같은 repo의 worktree들은 메인 체크아웃의 장부 하나를 공유하며, 동시 초기화는 Git 공통 디렉터리의 잠금으로 직렬화한다. 자동 준비는 `.git/info/exclude`를 사용하므로 프로젝트의 `.gitignore`나 코드 브랜치를 수정하지 않는다. 강제 종료로 `axmap-init.lock`이 남았다면 해당 프로세스가 끝났는지 확인하고 오류에 표시된 잠금 파일을 제거한다.
 
 `axmap init --remote <Git-원격-이름>`과 MCP의 `ax_init(remote: "원격-이름")`은 명시적 준비용으로 유지한다. 커밋 훅은 repo별 선택 사항이며 새 repo에 적용하려면 `axmap hook install`을 실행한다.
+
+특정 repo를 미리 초기화하고 커밋 훅도 설치하려면 `axmap setup --repo <경로>`를 명시한다. `--remote <이름|URL>`이나 `--commands project`도 명시적 프로젝트 설정 옵션이며 대상 Git repo가 필요하다. 기본 전역 setup에서는 장부와 커밋 훅을 만들지 않는다. Codex 등록은 서버 경로와 환경을 확인해 예전 경로·고정 `AXMAP_REPO`·서버 시작 `cwd`를 갱신하고, 개인 환경값과 다른 MCP 서버는 보존한다.
 
 ```bash
 axmap claim src/auth --agent my-agent --session my-session --task T-12 --intent "로그인 검증"

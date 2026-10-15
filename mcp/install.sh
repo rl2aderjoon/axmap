@@ -226,7 +226,7 @@ SERVER="$DEST/mcp/server.mjs"
 # 이 PC 에 어떤 CLI 가 있는지 찾고 각자의 설정에 넣는 일은 tools/mcp-register.mjs 가
 # 이미 한다. 여기서 다시 짜지 않는다.
 say ''
-node "$DEST/tools/mcp-register.mjs"
+node "$DEST/tools/mcp-register.mjs" || fail 'AI CLI 전역 등록을 확인하지 못했습니다. 위 오류를 해결하고 setup을 다시 실행하세요.'
 say '      (위에 claude 가 ".mcp.json 이 없습니다" 로 나왔다면, 그건 "저장소 안의'
 say '       .mcp.json" 을 찾는 검사입니다. 전역 설치에는 그 파일이 없는 것이 정상이고,'
 say '       Claude Code 는 바로 아래에서 따로 등록합니다.)'
@@ -293,7 +293,7 @@ if ! command -v codex >/dev/null 2>&1; then
 else
   if codex mcp list 2>/dev/null | grep -q axmap; then
     ST_CODEX='ok'
-    WHY_CODEX="~/.codex/config.toml (codex mcp list 로 확인). 이름은 손으로 넣으세요: [mcp_servers.axmap.env] 아래에 AXMAP_AGENT = \"$NAME\""
+    WHY_CODEX='~/.codex/config.toml (codex mcp list로 확인). 작업 repo는 실행 위치에서 결정하고 이름은 git 설정을 사용합니다.'
   else
     ST_CODEX='fail'; WHY_CODEX='codex mcp list 에 axmap 이 없습니다 — 위 TOML 조각을 손으로 넣으세요'
   fi

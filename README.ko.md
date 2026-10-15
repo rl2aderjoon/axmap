@@ -13,22 +13,20 @@ npm 패키지 이름은 `axmap-cli`, 실행 명령은 `axmap`이다.
 
 ## 설치
 
-사용할 git 저장소에서 실행한다.
+Git 저장소 밖을 포함해 어느 폴더에서든 실행한다.
 
 ```bash
 npm install -g axmap-cli@latest
-cd <프로젝트-저장소>
 axmap setup
-axmap doctor
 ```
 
-`setup`은 저장소의 선점 장부와 커밋 훅을 준비하고, AI 도구의 사용자 설정에 MCP를 등록한다.
+`setup`은 이 PC에 axMap을 설치하고 AI 도구의 사용자 설정에 MCP를 등록한다. 실행한 폴더에 타겟을 고정하거나 repo를 초기화하지 않는다.
 MCP를 사용하려면 설정 후 AI 도구를 다시 시작한다.
 함께 작업하는 사람과 에이전트는 같은 원격 장부를 사용해야 서로의 선점을 볼 수 있다.
 
 자세한 설치·설정은 [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md)를 참고한다.
 
-## 1.3.0: repo를 옮겨도 init 없이 사용
+## 1.3.1: 어느 폴더에서든 setup 한 번, 이후 repo 자동 연결
 
 axMap을 한 번 설정하면 다른 Git 저장소에서도 Codex 등 AI CLI를 열어 바로 사용할 수 있다. 세션의 작업 repo를 자동으로 선택하고, 첫 조회·선점 때 장부를 준비하므로 매번 `axmap init`을 실행하지 않아도 된다.
 
@@ -36,14 +34,14 @@ axMap을 한 번 설정하면 다른 Git 저장소에서도 Codex 등 AI CLI를 
 
 MCP는 클라이언트가 알려주는 작업 폴더(roots)를 따라간다. 미지원 클라이언트는 시작 폴더를 사용하며, 도중에 폴더를 바꾸면 도구의 `cwd`에 작업 폴더 절대 경로를 전달한다. 커밋 훅을 적용할 새 repo에서는 `axmap hook install`을 실행한다.
 
-기존 설치를 업그레이드할 때는 작업 repo에서 아래 명령을 한 번 실행하고 AI CLI를 다시 시작한다.
+기존 설치를 업그레이드할 때도 어느 폴더에서든 아래 명령을 한 번 실행하고 AI CLI를 다시 시작한다.
 
 ```bash
 npm install -g axmap-cli@latest
 axmap setup
 ```
 
-`setup`은 MCP와 훅이 사용하는 설치 사본 및 등록을 갱신한다. 이후 repo를 옮길 때는 setup이나 init을 반복하지 않는다.
+`setup`은 MCP와 공유 훅 실행 사본 및 등록을 갱신한다. 이후 repo를 옮길 때는 setup이나 init을 반복하지 않는다. 특정 repo의 장부와 커밋 훅까지 미리 준비하려면 `axmap setup --repo <경로>`를 명시한다.
 
 ## 작업 흐름
 

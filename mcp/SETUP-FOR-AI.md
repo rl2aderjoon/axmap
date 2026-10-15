@@ -8,15 +8,14 @@ Node 20 이상과 git을 확인한다. npm 패키지 이름은 `axmap-cli`다.
 npm install -g axmap-cli@latest
 ```
 
-사용자가 지정한 git 저장소에서 다음 명령을 실행한다. 대상 저장소가 불분명하면 먼저 확인한다.
+Git 저장소 밖을 포함해 어느 폴더에서든 다음 명령을 실행한다. setup에는 작업 repo를 지정할 필요가 없다.
 
 ```bash
 axmap setup --dry-run
 axmap setup
-axmap doctor
 ```
 
-`setup`은 AI CLI의 사용자 설정에 MCP를 등록하고 대상 저장소에 장부와 훅을 만든다. 전역 MCP 등록에 `AXMAP_REPO`를 특정 폴더로 고정하지 않는다. 다른 원격을 공유하려면 `--remote <git-주소>`를 명시한다.
+`setup`은 프로그램과 전역 명령을 설치하고 AI CLI의 사용자 설정에 MCP를 등록한다. repo를 초기화하거나 `AXMAP_REPO`를 특정 폴더로 고정하지 않는다. repo의 장부와 커밋 훅도 미리 준비하려면 `--repo <경로>`를 명시하고, 다른 원격을 공유하려면 `--remote <git-주소>`도 지정한다.
 
 1.3.0부터 다른 repo로 이동할 때 `setup`이나 `init`을 반복하지 않는다. 새 작업 repo에서 AI CLI를 실행하면 첫 조회·선점 시 장부를 자동 준비한다. MCP roots가 지원되면 작업 폴더 변경도 따라간다. 지원되지 않거나 여러 repo가 열려 있으면 도구의 `cwd`에 현재 작업 폴더 절대 경로를 전달한다. 커밋 훅을 새 repo에도 적용하려면 `axmap hook install`을 실행한다.
 

@@ -13,22 +13,20 @@ The npm package is `axmap-cli`; the command is `axmap`.
 
 ## Installation
 
-Run these commands in the Git repository you want to work on.
+Run these commands from any folder, including outside a Git repository.
 
 ```bash
 npm install -g axmap-cli@latest
-cd <your-project-repository>
 axmap setup
-axmap doctor
 ```
 
-`setup` prepares the repository's claim ledger and commit hooks, and registers MCP in your AI tool's user settings.
+`setup` installs axMap and registers MCP in your AI tool's user settings. It does not bind the installation to the current folder or initialize a repository.
 Restart your AI tool after setup to use MCP.
 People and agents working together must share the same remote ledger to see each other's claims.
 
 See [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) for installation and configuration details (Korean).
 
-## Automatic repository setup in 1.3.0
+## Global setup and automatic repositories in 1.3.1
 
 Set up axMap once, then open Codex or another AI CLI in any Git repository. axMap selects that session's repository and prepares its ledger on the first status or claim request. There is no per-repository `axmap init` step.
 
@@ -36,14 +34,14 @@ Existing remote ledgers are reused. Linked worktrees share one ledger, and simul
 
 MCP follows workspace roots supplied by the client. When roots are unsupported, it uses the launch directory; pass the absolute working directory through the tool's `cwd` argument for later directory changes. Run `axmap hook install` in each repository where you want commit enforcement.
 
-To upgrade an existing installation, run this once from a working repository, then restart your AI CLI:
+To upgrade an existing installation, run this once from any folder, then restart your AI CLI:
 
 ```bash
 npm install -g axmap-cli@latest
 axmap setup
 ```
 
-`setup` refreshes the installed MCP and hook copy as well as its registration. Subsequent repository changes do not require another setup or init.
+`setup` refreshes the installed MCP and shared hook runner as well as its registration. Subsequent repository changes do not require another setup or init. To explicitly prepare one repository and its commit hook during setup, use `axmap setup --repo <path>`.
 
 ## Workflow
 

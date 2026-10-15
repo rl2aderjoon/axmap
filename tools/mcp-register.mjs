@@ -105,6 +105,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
  */
 const sameEntry = (cur, want) =>
   !!cur && cur.command === want.command &&
+  !cur.cwd && !Object.hasOwn(cur.env ?? {}, 'AXMAP_REPO') &&
   JSON.stringify(cur.args || []) === JSON.stringify(want.args) &&
   Object.entries(want.env).every(([k, v]) => ((cur.env || {})[k] === v))
 
@@ -118,6 +119,8 @@ function doClaude(bin, repo) {
     snippetClaude()
     return
   }
+  want.env = { ...(cur?.env ?? {}), ...want.env }
+  delete want.env.AXMAP_REPO
   if (sameEntry(cur, want)) { ok('claude', '이미 등록돼 있습니다 (user 범위)'); return }
 
   // 문서에 있다고 믿고 부르지 않는다 — 먼저 물어본다. doCodex 와 같다.
@@ -133,7 +136,7 @@ function doClaude(bin, repo) {
     '--', want.command, ...want.args]
 
   if (DRY) {
-    hm('claude', `(dry-run) ${cur ? 'claude mcp remove axmap -s user 뒤 ' : ''}claude ${add.join(' ')}`)
+    hm('claude', '(dry-run) Claude 사용자 설정의 axmap 서버 경로·환경을 갱신합니다')
     return
   }
 
@@ -220,6 +223,8 @@ function mergeJson(label, file) {
   }
 
   const servers = cfg.mcpServers ?? {}
+  want.env = { ...(servers.axmap?.env ?? {}), ...want.env }
+  delete want.env.AXMAP_REPO
   if (same(servers.axmap, want)) { ok(label, `이미 등록돼 있습니다: ${file}`); return }
 
   const had = servers.axmap !== undefined
@@ -261,31 +266,56 @@ function snippetJson() {
 // 🔴 TOML 을 직접 파싱하지 않는다. 파서를 새로 짜는 것은 이 저장소의 "의존성 없음" 과
 //    "판정을 복잡하게 만들지 않는다" 에 둘 다 어긋나고, 어설픈 파서가 남의 config.toml 을
 //    깨뜨리는 것이 이 작업에서 나올 수 있는 최악의 결과다. 쓰는 일은 codex 자신에게 맡긴다.
-function doCodex(bin) {
-  const run = (args) => spawnSync(bin, args, { encoding: 'utf8', windowsHide: true })
+export function doCodex(bin, { run: injectedRun, dry = DRY } = {}) {
+  const run = injectedRun ?? ((args) => spawnSync(bin, args, { cwd: os.homedir(), encoding: 'utf8', windowsHide: true }))
 
   const help = run(['mcp', '--help'])
   if (help.status !== 0 || !/\badd\b/.test(`${help.stdout}${help.stderr}`)) {
     hm('codex', "'codex mcp add' 를 확인하지 못했습니다 — 손으로 넣으세요")
     snippetToml()
-    return
+    return false
   }
 
-  // 이미 들어 있으면 다시 넣지 않는다. setup 은 몇 번을 돌려도 안전해야 한다.
-  const list = run(['mcp', 'list'])
-  if (list.status === 0 && /\baxmap\b/.test(`${list.stdout}`)) {
-    ok('codex', `이미 등록돼 있습니다 (codex mcp list)`)
-    return
+  // Check the actual command and environment, not just the server name. An old
+  // registration may still point at a temporary install or pin AXMAP_REPO.
+  const list = run(['mcp', 'list', '--json'])
+  let servers
+  try { servers = JSON.parse(list.stdout) } catch { /* reported below */ }
+  if (list.status !== 0 || !Array.isArray(servers)) {
+    no('codex', '기존 MCP 설정을 확인하지 못했습니다 — 설정을 덮어쓰지 않았습니다')
+    return false
+  }
+  const current = servers.find((s) => s.name === 'axmap')
+  const transport = current?.transport
+  const want = entry()
+  const wantedEnv = { ...(transport?.env ?? {}), ...want.env }
+  delete wantedEnv.AXMAP_REPO
+  if (transport?.type === 'stdio' && sameEntry(transport, { ...want, env: wantedEnv }) &&
+      !transport.cwd && !Object.hasOwn(transport.env ?? {}, 'AXMAP_REPO') && current.enabled !== false) {
+    ok('codex', '전역 등록이 최신입니다 — 실행 위치의 repo를 사용합니다')
+    return true
   }
 
-  const add = ['mcp', 'add', 'axmap', '--env', 'AXMAP_ACTOR=agent', '--env', 'AXMAP_TTL=45m', '--', 'node', SERVER]
-  if (DRY) { hm('codex', `(dry-run) codex ${add.join(' ')}`); return }
+  const add = ['mcp', 'add', 'axmap', ...Object.entries(wantedEnv).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--', want.command, ...want.args]
+  if (dry) { hm('codex', '(dry-run) codex mcp add로 전역 axmap 서버 경로·환경을 갱신합니다'); return true }
 
   const r = run(add)
-  if (r.status === 0) ok('codex', 'codex mcp add 로 등록했습니다')
+  if (r.status === 0) {
+    const check = run(['mcp', 'list', '--json'])
+    let saved
+    try { saved = JSON.parse(check.stdout)?.find((s) => s.name === 'axmap') } catch { /* below */ }
+    if (check.status === 0 && sameEntry(saved?.transport, { ...want, env: wantedEnv }) &&
+        !saved.transport.cwd && !Object.hasOwn(saved.transport.env ?? {}, 'AXMAP_REPO')) {
+      ok('codex', '전역 등록을 갱신했습니다 — 실행 위치의 repo를 사용합니다')
+      return true
+    }
+    no('codex', '등록 후 서버 경로·작업 폴더 설정이 일치하지 않습니다')
+    return false
+  }
   else {
     no('codex', `codex mcp add 가 실패했습니다 (${(r.stderr || r.stdout || '').trim().split('\n')[0] || `exit ${r.status}`})`)
     snippetToml()
+    return false
   }
 }
 
@@ -339,7 +369,7 @@ function main() {
     any = true
     if (a.id === 'claude') doClaude(bin, root)
     else if (a.id === 'agy') doAgy()
-    else if (a.id === 'codex') doCodex(bin)
+    else if (a.id === 'codex' && !doCodex(bin)) return 1
   }
 
   if (!any) hm('CLI', '이 PC 에서 AI CLI 를 찾지 못했습니다 — 나중에 다시 실행하세요')
@@ -350,4 +380,4 @@ function main() {
   return 0
 }
 
-process.exit(main())
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(main())

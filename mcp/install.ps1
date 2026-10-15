@@ -228,6 +228,7 @@ if (-not (Test-Path -LiteralPath $server)) { Fail "복사가 끝났는데 서버
 # 이미 한다. 여기서 다시 짜지 않는다.
 Say ''
 & node (Join-Path $Dest 'tools\mcp-register.mjs')
+if ($LASTEXITCODE -ne 0) { Fail 'AI CLI 전역 등록을 확인하지 못했습니다. 위 오류를 해결하고 setup을 다시 실행하세요.' }
 Say '      (위에 claude 가 ".mcp.json 이 없습니다" 로 나왔다면, 그건 "저장소 안의'
 Say '       .mcp.json" 을 찾는 검사입니다. 전역 설치에는 그 파일이 없는 것이 정상이고,'
 Say '       Claude Code 는 바로 아래에서 따로 등록합니다.)'
@@ -295,7 +296,7 @@ if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
   $listed = "$(& codex mcp list)"
   if ($listed -match 'axmap') {
     $stCodex = 'ok'
-    $whyCodex = "~/.codex/config.toml (codex mcp list 로 확인). 이름은 손으로 넣으세요: [mcp_servers.axmap.env] 아래에 AXMAP_AGENT = ""$Name"""
+    $whyCodex = '~/.codex/config.toml (codex mcp list로 확인). 작업 repo는 실행 위치에서 결정하고 이름은 git 설정을 사용합니다.'
   } else {
     $stCodex = 'fail'; $whyCodex = 'codex mcp list 에 axmap 이 없습니다 — 위 TOML 조각을 손으로 넣으세요'
   }

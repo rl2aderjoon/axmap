@@ -11,15 +11,14 @@
 
 ## 설치
 
-Node 20 이상과 git이 필요하다. 사용하려는 git 저장소에서 실행한다.
+Node 20 이상과 git이 필요하다. Git 저장소 밖을 포함해 어느 폴더에서든 실행한다.
 
 ```bash
 npm install -g axmap-cli@latest
 axmap setup
-axmap doctor
 ```
 
-설정 후 AI CLI를 다시 시작한다. `setup`은 AI CLI의 사용자 설정에 MCP를 등록하고 대상 저장소의 장부와 커밋 훅을 준비한다. 소스 개발 환경에서는 `node bin/axmap.mjs setup`을 사용한다.
+어느 폴더에서든 setup을 실행한 뒤 AI CLI를 다시 시작한다. `setup`은 PC 전역에 MCP와 명령을 설치·등록하며 repo를 초기화하거나 타겟으로 저장하지 않는다. 이후 AI CLI를 켠 repo에서 장부를 자동 준비한다. 소스 개발 환경에서는 `node bin/axmap.mjs setup`을 사용한다. 명시적 repo 준비는 `setup --repo <경로>`를 사용한다.
 
 AI에게 설치를 맡기려면 다음 공개 문서를 제공한다.
 
@@ -73,7 +72,7 @@ Claude Code 에서는 `/ax`, `/ax-start`, `/ax-done`, `/ax-tell` 로도 부른�
 | Claude Code (`claude`) | `~/.claude.json` 의 user 범위 (**이 PC 의 모든 폴더에 적용되는 개인 설정**) | 설치기가 `claude mcp add -s user` 로 | ✅ 이 PC 에서 확인 |
 | Claude Code (`claude`) | 저장소의 `.mcp.json` | 저장소에 들어 있으면 스스로 발견 | ✅ 이 저장소가 그렇게 쓴다 |
 | Antigravity (`agy`) | `~/.gemini/config/mcp_config.json` (전역, `mcpServers`) | `tools/mcp-register.mjs` | ✅ `agy` 1.1.10 으로 확인 |
-| Codex (`codex`) | `~/.codex/config.toml` (전역, `[mcp_servers.axmap]`) | `tools/mcp-register.mjs` 가 `codex mcp add` 로 | ⚠️ 문서로만 확인, 실물 미확인 |
+| Codex (`codex`) | `~/.codex/config.toml` (전역, `[mcp_servers.axmap]`) | `tools/mcp-register.mjs`가 Codex CLI로 등록·검증 | 임시 사용자 환경에서 실제 CLI 등록과 repo별 MCP 실행 확인 |
 
 `agy` 에서 확인한 것: 전역 파일은 먹고, 저장소의 `.mcp.json` 은 **안 먹는다.**
 공식 문서의 작업 폴더용 `.agents/mcp_config.json` 도 CLI 에서는 안 먹었다(IDE 쪽으로 보인다).
@@ -163,11 +162,7 @@ clone 하면 장부에는 `claude` 라는 **한 명**만 존재하고, 겹침 �
 3. OS 사용자 이름
 4. 호스트 이름
 
-**이름은 설치기를 켠 폴더의 git 설정에서 나온다.** git 은 저장소 안이면 그 저장소의
-`user.name` 을, 밖이면 전역 값을 답한다. 그래서 앞으로 일할 저장소 안에서 설치하는
-것이 맞다 — 그래야 MCP 가 쓰는 이름과 같은 저장소에서 손으로 `axmap` 을 칠 때의
-이름이 같아진다. 다르면 한 사람이 장부에서 둘이 되고, **자기가 잡은 것을 자기가
-반납하지 못한다**(`release` 종료 코드 5).
+**기본 전역 setup의 이름은 전역 Git 설정에서 정한다.** setup을 실행한 repo의 로컬 이름을 다른 repo에 가져가지 않는다. 명시적 프로젝트 설정에서는 해당 repo의 이름을 사용할 수 있다. 선점부터 반납까지 같은 이름·세션을 사용해야 한다.
 
 이름 검증은 설치기가 다시 짜지 않고 저장소의 `agentNameError()` 를 그대로 부른다.
 설치기가 통과시킨 이름을 서버가 거부하는 일이 없어야 하기 때문이다.
@@ -207,16 +202,9 @@ clone 하면 장부에는 `claude` 라는 **한 명**만 존재하고, 겹침 �
 
 ## 안 되는 것 / 아직 확인 못 한 것
 
-**Codex 는 실물로 확인하지 못했다.** 이 팀에 `codex` 가 깔린 PC 가 아직 없다.
-`~/.codex/config.toml` 형식은 공식 문서를 따른 것이고, `mcp-register` 는
-`codex mcp --help` 를 먼저 찔러 보고 그 하위 명령이 실제로 있을 때만 등록한다.
-TOML 을 직접 파싱하지도 쓰지도 않는다 — 어설픈 파서가 남의 `config.toml` 을 깨뜨리는
-것이 이 작업에서 나올 수 있는 최악의 결과다.
+**Codex CLI 등록은 임시 사용자 환경에서 실제 실행으로 확인했다.** `codex mcp list --json`으로 서버 경로·환경·시작 cwd를 확인하고 `codex mcp add`로 갱신한 뒤 다시 검증한다. TOML을 직접 파싱하거나 덮어쓰지 않는다. 모델 클라이언트별 roots 지원 여부는 별도 확인이 필요하다.
 
-**Codex 에는 이름이 안 들어간다.** `mcp-register` 가 `codex mcp add` 를 부를 때
-`AXMAP_AGENT` 를 빼고 부르고, 이미 등록돼 있으면 다시 부르지도 않는다. 그래서 설치기는
-codex 에 대해서는 **확인만 하고 이름은 손으로 넣으라고 한 줄 찍는다.** 확인 안 된
-도구의 설정을 추측으로 덮어쓰는 것보다 낫다고 봤다.
+**개인 환경값은 보존한다.** Codex의 기존 `AXMAP_AGENT` 등 개인 환경값은 유지하며, 전역 setup은 예전 서버 경로·고정 `AXMAP_REPO`·시작 cwd를 제거한다. 이름을 따로 지정하지 않았으면 MCP가 작업 repo의 Git 설정에서 정한다.
 
 **MCP `roots`는 1.3.0부터 지원한다.** 클라이언트가 지원을 선언하면 `roots/list`로 작업 폴더를 받고 변경 알림도 처리한다. 지원하지 않는 클라이언트는 시작 repo를 사용하고, 실행 중 경로 변경은 도구의 `cwd`로 전달한다. 프로토콜 회귀 테스트로 검증했으며 클라이언트별 실제 지원 여부는 별도 확인이 필요하다.
 
