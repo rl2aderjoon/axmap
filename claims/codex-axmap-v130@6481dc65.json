@@ -1,10 +1,10 @@
 {
   "agent": "codex-axmap-v130",
   "task": "v1.3.0",
-  "intent": "자동 준비 후에도 선점 없는 커밋 거부 회귀 검증",
+  "intent": "새 초기화 잠금 모듈을 배포 파일 목록에 포함",
   "actor": null,
   "session": "v130-20261015",
-  "since": "2026-10-15T11:50:39.756Z",
+  "since": "2026-10-15T11:55:49.289Z",
   "ttlMs": 1800000,
   "paths": [
     "README.ko.md",
@@ -20,6 +20,7 @@
     "src/repolock.mjs",
     "src/repotarget.mjs",
     "test/auto-init.test.mjs",
+    "test/closure.test.mjs",
     "test/mcp.test.mjs",
     "test/worktree-ledger.test.mjs"
   ]
