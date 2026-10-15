@@ -1,12 +1,13 @@
 {
   "agent": "codex-axmap-v130",
   "task": "v1.3.0",
-  "intent": "잠금 재시도 테스트를 고정 타이머 대신 실제 경합 관측으로 검증",
+  "intent": "시작 안내에서 수동 init 요구 제거",
   "actor": null,
   "session": "v130-20261015",
-  "since": "2026-10-15T12:00:41.524Z",
+  "since": "2026-10-15T12:02:20.596Z",
   "ttlMs": 1800000,
   "paths": [
+    ".claude/commands/ax-start.md",
     "README.ko.md",
     "README.md",
     "bin/axmap.mjs",
