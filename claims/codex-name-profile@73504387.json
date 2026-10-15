@@ -1,0 +1,23 @@
+{
+  "agent": "codex-name-profile",
+  "task": "messaging-profile",
+  "intent": "Global display name and automatic repository messaging profile sharing",
+  "actor": null,
+  "session": "name-profile-20261016",
+  "since": "2026-10-15T15:31:45.169Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "README.md",
+    "bin/axmap.mjs",
+    "docs/DECISIONS.md",
+    "docs/SPEC.md",
+    "mcp/server.mjs",
+    "src/identity.mjs",
+    "test/bus-identity.test.mjs",
+    "test/identity.test.mjs",
+    "test/mcp.test.mjs",
+    "test/setup.test.mjs",
+    "tools/bus.mjs",
+    "tools/setup.mjs"
+  ]
+}
