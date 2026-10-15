@@ -4,8 +4,8 @@
   "intent": "새 초기화 잠금 모듈을 배포 파일 목록에 포함",
   "actor": null,
   "session": "v130-20261015",
-  "since": "2026-10-15T11:55:49.289Z",
-  "ttlMs": 1800000,
+  "since": "2026-10-15T11:59:07.389Z",
+  "ttlMs": 2700000,
   "paths": [
     "README.ko.md",
     "README.md",
