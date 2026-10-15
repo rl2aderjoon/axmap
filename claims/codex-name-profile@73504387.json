@@ -4,8 +4,8 @@
   "intent": "Global display name and automatic repository messaging profile sharing",
   "actor": null,
   "session": "name-profile-20261016",
-  "since": "2026-10-15T15:31:45.169Z",
-  "ttlMs": 1800000,
+  "since": "2026-10-15T15:41:46.005Z",
+  "ttlMs": 5400000,
   "paths": [
     "README.md",
     "bin/axmap.mjs",
