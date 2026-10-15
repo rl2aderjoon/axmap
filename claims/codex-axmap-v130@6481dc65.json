@@ -1,11 +1,11 @@
 {
   "agent": "codex-axmap-v130",
   "task": "v1.3.0",
-  "intent": "새 초기화 잠금 모듈을 배포 파일 목록에 포함",
+  "intent": "잠금 재시도 테스트를 고정 타이머 대신 실제 경합 관측으로 검증",
   "actor": null,
   "session": "v130-20261015",
-  "since": "2026-10-15T11:59:07.389Z",
-  "ttlMs": 2700000,
+  "since": "2026-10-15T12:00:41.524Z",
+  "ttlMs": 1800000,
   "paths": [
     "README.ko.md",
     "README.md",
@@ -21,6 +21,7 @@
     "src/repotarget.mjs",
     "test/auto-init.test.mjs",
     "test/closure.test.mjs",
+    "test/ledgerlock.test.mjs",
     "test/mcp.test.mjs",
     "test/worktree-ledger.test.mjs"
   ]
