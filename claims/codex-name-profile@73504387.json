@@ -1,11 +1,11 @@
 {
   "agent": "codex-name-profile",
   "task": "messaging-profile",
-  "intent": "Document display profiles and prepare patch release",
+  "intent": "Include the new identity module in CLI and MCP import closure",
   "actor": null,
   "session": "name-profile-20261016",
-  "since": "2026-10-15T15:41:49.287Z",
-  "ttlMs": 1800000,
+  "since": "2026-10-15T15:45:33.660Z",
+  "ttlMs": 5400000,
   "paths": [
     "README.ko.md",
     "README.md",
@@ -17,6 +17,7 @@
     "package.json",
     "src/identity.mjs",
     "test/bus-identity.test.mjs",
+    "test/closure.test.mjs",
     "test/identity.test.mjs",
     "test/mcp.test.mjs",
     "test/setup.test.mjs",
