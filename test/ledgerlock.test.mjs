@@ -46,14 +46,14 @@ const run = (args, agent) =>
   spawnSync(process.execPath, [CLI, ...args], { cwd: repo, env: env(agent), encoding: 'utf8', windowsHide: true })
 
 /** 비동기로 띄우고 종료를 기다린다. 도중에 락을 풀어야 하므로 sync 로는 안 된다. */
-function runAsync(args, agent) {
+function runAsync(args, agent, onStderr = () => {}) {
   const p = spawn(process.execPath, [CLI, ...args], { cwd: repo, env: env(agent), windowsHide: true })
   let out = ''
   let err = ''
   p.stdout.setEncoding('utf8')
   p.stderr.setEncoding('utf8')
   p.stdout.on('data', (c) => { out += c })
-  p.stderr.on('data', (c) => { err += c })
+  p.stderr.on('data', (c) => { err += c; onStderr(err) })
   return new Promise((resolve) => p.on('close', (code) => resolve({ status: code, stdout: out, stderr: err })))
 }
 
@@ -107,11 +107,17 @@ const hasClaim = (agent) => {
 describe('index.lock 경합', () => {
   it('🔴 도중에 락이 풀리면 claim 이 성공한다 (재시도가 실제로 돈다)', async () => {
     lock()
-    const done = runAsync(['claim', 'a.txt', '--task', 'T-lock', '--intent', '락 재시도'], 'lock-a')
-    // 백오프 계단은 50→1600ms 다. 여기서 풀면 앞쪽 회차 중 하나가 통과한다.
-    const timer = setTimeout(() => fs.rmSync(lockFile, { force: true }), 400)
-    const r = await done
-    clearTimeout(timer)
+    let timer
+    // Parallel test startup can exceed 400ms. Release only after observing
+    // contention, so the assertion proves a retry rather than machine speed.
+    const done = runAsync(['claim', 'a.txt', '--task', 'T-lock', '--intent', '락 재시도'], 'lock-a', (stderr) => {
+      if (!timer && /장부가 잠겨 있습니다/.test(stderr)) timer = setTimeout(() => fs.rmSync(lockFile, { force: true }), 50)
+    })
+    let r
+    try { r = await done } finally {
+      clearTimeout(timer)
+      fs.rmSync(lockFile, { force: true })
+    }
 
     assert.equal(r.status, 0, `claim 이 실패했다:\n${r.stderr}`)
     assert.match(r.stderr, /장부가 잠겨 있습니다/, '재시도 없이 우연히 통과한 것이 아닌지 확인한다')

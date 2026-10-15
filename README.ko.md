@@ -1,6 +1,6 @@
 # axMap
 
-[![English](docs/assets/readme-en.svg)](README.md) [![한국어](docs/assets/readme-ko.svg)](README.ko.md)
+[![English](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-en.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.md) [![한국어](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-ko.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.ko.md)
 
 **여러 AI 에이전트가 같은 git 저장소에서 작업할 때, 수정할 경로를 먼저 선점해 충돌을 예방하는 CLI 도구.**
 
@@ -26,7 +26,24 @@ axmap doctor
 MCP를 사용하려면 설정 후 AI 도구를 다시 시작한다.
 함께 작업하는 사람과 에이전트는 같은 원격 장부를 사용해야 서로의 선점을 볼 수 있다.
 
-자세한 설치·설정은 [docs/INSTALL.md](docs/INSTALL.md)를 참고한다.
+자세한 설치·설정은 [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md)를 참고한다.
+
+## 1.3.0: repo를 옮겨도 init 없이 사용
+
+axMap을 한 번 설정하면 다른 Git 저장소에서도 Codex 등 AI CLI를 열어 바로 사용할 수 있다. 세션의 작업 repo를 자동으로 선택하고, 첫 조회·선점 때 장부를 준비하므로 매번 `axmap init`을 실행하지 않아도 된다.
+
+기존 원격 장부가 있으면 이어 쓰고, 같은 repo의 worktree는 장부 하나를 공유한다. 서로 다른 repo의 동시 세션은 독립적으로 동작한다. 원격 접근 실패를 장부 없음으로 판단해 별도 장부를 만들지 않는다.
+
+MCP는 클라이언트가 알려주는 작업 폴더(roots)를 따라간다. 미지원 클라이언트는 시작 폴더를 사용하며, 도중에 폴더를 바꾸면 도구의 `cwd`에 작업 폴더 절대 경로를 전달한다. 커밋 훅을 적용할 새 repo에서는 `axmap hook install`을 실행한다.
+
+기존 설치를 업그레이드할 때는 작업 repo에서 아래 명령을 한 번 실행하고 AI CLI를 다시 시작한다.
+
+```bash
+npm install -g axmap-cli@latest
+axmap setup
+```
+
+`setup`은 MCP와 훅이 사용하는 설치 사본 및 등록을 갱신한다. 이후 repo를 옮길 때는 setup이나 init을 반복하지 않는다.
 
 ## 작업 흐름
 
@@ -64,7 +81,7 @@ git ref의 원자적 갱신과 경로 겹침 판정으로 선점한다.
 `axmap audit`은 장부 이력을 재생해 규칙 위반을 검사한다.
 
 상태를 읽지 못하면 그 이유를 알리고, 판정할 수 없는 상태를 성공으로 처리하지 않는다.
-프로토콜은 [docs/SPEC.md](docs/SPEC.md), 지켜야 할 성질은 [docs/INVARIANTS.md](docs/INVARIANTS.md)에 있다.
+프로토콜은 [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md), 지켜야 할 성질은 [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md)에 있다.
 
 ## AI 도구에서 사용
 
@@ -77,7 +94,7 @@ MCP를 연결하면 `ax_claim`, `ax_status`, `ax_release` 등의 도구를 AI가
 작업이 끝나면 ax_release로 반납한다.
 ```
 
-연결 방법과 도구 목록은 [mcp/README.md](mcp/README.md)를 참고한다.
+연결 방법과 도구 목록은 [mcp/README.md](https://github.com/rl2aderjoon/axmap/blob/main/mcp/README.md)를 참고한다.
 
 ## 개발과 검증
 
@@ -96,12 +113,12 @@ npm run demo:chaos
 
 | 문서 | 내용 |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | 소스 작업 규칙 |
-| [docs/INSTALL.md](docs/INSTALL.md) | 설치와 사용 |
-| [docs/SPEC.md](docs/SPEC.md) | 명령과 선점 프로토콜 |
-| [docs/INVARIANTS.md](docs/INVARIANTS.md) | 불변식과 검증 기준 |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 제품 범위와 설계 결정 |
+| [CLAUDE.md](https://github.com/rl2aderjoon/axmap/blob/main/CLAUDE.md) | 소스 작업 규칙 |
+| [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) | 설치와 사용 |
+| [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md) | 명령과 선점 프로토콜 |
+| [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md) | 불변식과 검증 기준 |
+| [docs/DECISIONS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/DECISIONS.md) | 제품 범위와 설계 결정 |
 
 ## 라이선스
 
-[MIT](LICENSE)
+[MIT](https://github.com/rl2aderjoon/axmap/blob/main/LICENSE)

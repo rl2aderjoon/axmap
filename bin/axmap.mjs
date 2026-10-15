@@ -46,6 +46,7 @@ import {
 import { stateDir } from '../src/repotarget.mjs'
 import { homeRegistrations } from '../src/mcpstate.mjs'
 import { compareBranchFor, formatOverlap } from '../src/overlap.mjs'
+import { withRepoLock } from '../src/repolock.mjs'
 
 /** 이 CLI 가 들어 있는 axMap 폴더. 갱신 확인과 setup 이 자기 위치를 알아야 한다. */
 const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -666,8 +667,8 @@ function repoRoot() {
  * 같은 명령을 쓰고 있었다 — 훅은 공통이라는 사실을 알면서 장부는 몰랐던 것이다.
  *
  * 🔴 **"못 찾음" 과 "없음" 을 뭉개지 않는다.** 여기서 하는 일은 *어디를 볼지*를
- *    바로잡는 것뿐이다. 바로잡은 자리에 장부가 없으면 `requireLedger` 는 지금처럼
- *    거부한다. 뭉개면 `init` 을 안 돌린 저장소에서 장부 없이 커밋이 통과한다.
+ *    바로잡는 것뿐이다. 1.3.0부터 그 자리에 장부가 없으면 자동 준비한다.
+ *    준비 후에도 실제 선점이 없는 staged 파일은 verify가 거부한다.
  *
  * 판정이 안 서면 `root` 를 그대로 돌려준다(= 지금까지의 동작). 공통 디렉터리가
  * `.git` 이라는 이름이 아닌 배치 — bare 저장소의 worktree 나 `--git-dir` 을 손으로
@@ -709,6 +710,12 @@ function computeAxmapHome(root) {
 
 function ledgerDir(root) {
   return path.join(axmapHome(root), LEDGER_REL)
+}
+
+function commonDir(root) {
+  const candidate = path.join(axmapHome(root), '.git')
+  try { if (fs.statSync(candidate).isDirectory()) return candidate } catch { /* nonstandard layout */ }
+  return path.resolve(root, gitOrDie(['rev-parse', '--git-common-dir'], { cwd: root }).out)
 }
 
 function claimsDir(root) {
@@ -989,18 +996,18 @@ function warnRetiredTakeover(flags, command) {
  * 모두가 반납해 claim 파일이 하나도 없으면 reset --hard 가 그 디렉터리를 지운다.
  * 그러면 "정상적으로 다 반납한 상태"가 "장부가 없음"으로 오진된다.
  */
-function requireLedger(root) {
-  if (fs.existsSync(path.join(ledgerDir(root), '.git'))) return
-  const home = axmapHome(root)
-  let msg = `장부가 없습니다. 먼저 실행하세요:\n  axmap init`
-  // 링크된 worktree 에서 실행 중이면 어디를 보고 없다고 하는지 밝힌다.
-  // 안 밝히면 "여기 .axmap 이 없는데?" 로 읽혀 장부를 또 만들게 된다 (그러면 진실이 둘이다).
-  if (path.resolve(home) !== path.resolve(root)) {
-    msg += `\n\n찾아본 곳: ${path.join(home, LEDGER_REL)}`
-    msg += `\n(여기는 링크된 worktree 라 장부는 메인 체크아웃에 하나만 둡니다.`
-    msg += `\n 이 폴더 안에 장부를 또 만들지 마세요 — 같은 저장소에 장부가 둘이 되면 락이 아닙니다.)`
+function requireLedger(root, flags = {}) {
+  const preparing = fs.existsSync(path.join(commonDir(root), 'axmap-init.lock'))
+  if (!preparing && fs.existsSync(path.join(ledgerDir(root), '.git'))) return
+  // Keep bootstrap messages off stdout: status --json is consumed by MCP.
+  const args = [path.join(SELF_ROOT, 'bin', 'axmap.mjs'), 'init', '--ledger-only']
+  if (typeof flags.remote === 'string') args.push('--remote', flags.remote)
+  const r = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', windowsHide: true })
+  const note = [r.stdout, r.stderr].filter(Boolean).join('\n').trim()
+  if (note) console.error(note)
+  if (r.status !== 0 || !fs.existsSync(path.join(ledgerDir(root), '.git'))) {
+    die('장부를 자동으로 준비하지 못했습니다.\n' + (r.error?.message ?? '위 오류를 해결한 뒤 다시 시도하세요.'))
   }
-  die(msg)
 }
 
 /** 지금 실행 위치가 장부 worktree 자신인가. */
@@ -1441,6 +1448,11 @@ function cmdUsersRepair() {
 
 function cmdInit(flags = {}) {
   const root = repoRoot()
+  const lock = path.join(commonDir(root), 'axmap-init.lock')
+  try { return withRepoLock(lock, () => initLedger(root, flags)) } catch (e) { die(e.message) }
+}
+
+function initLedger(root, flags) {
   const dir = ledgerDir(root)
 
   // .axmap 을 손으로 지웠어도 git 쪽에는 worktree 등록이 남아
@@ -1449,6 +1461,7 @@ function cmdInit(flags = {}) {
 
   if (fs.existsSync(path.join(dir, '.git'))) {
     console.log(`장부가 이미 있습니다: ${LEDGER_REL}`)
+    if (flags['ledger-only']) return
     // 🔴 여기서 끝내면 안 된다. 쪽지함은 장부보다 나중에 생겼으므로, 이미 init 을
     //    돌린 사람은 장부만 있고 쪽지함이 없다. 그 사람들이 다시 init 을 불렀을 때
     //    받아 가는 자리가 여기다.
@@ -1484,19 +1497,29 @@ function cmdInit(flags = {}) {
   }
   const remote = r.name
   if (remote) {
-    // 고른 근거가 추론이었다면 못 박는다. 이미 설정에서 왔으면 다시 쓰지 않는다.
-    if (!r.source.startsWith('git config')) {
-      git(['config', 'axmap.remote', remote], { cwd: root })
-    }
     console.log(`장부 원격: ${remote}  (${r.source})`)
   }
 
   // 원격에 이미 장부가 있으면 그것을 쓰고, 없으면 빈 트리로 새로 만든다.
   let base = null
-  if (remote && git(['fetch', '--quiet', remote, LEDGER_BRANCH], { cwd: root }).code === 0) {
-    base = git(['rev-parse', 'FETCH_HEAD'], { cwd: root }).out
-    console.log('원격 장부를 발견했습니다. 이어서 사용합니다.')
-  } else {
+  if (remote) {
+    const probe = git(['ls-remote', '--exit-code', remote, `refs/heads/${LEDGER_BRANCH}`], { cwd: root })
+    if (probe.code === 0) {
+      gitOrDie(['fetch', '--quiet', remote, LEDGER_BRANCH], { cwd: root })
+      base = gitOrDie(['rev-parse', 'FETCH_HEAD'], { cwd: root }).out
+      console.log('원격 장부를 발견했습니다. 이어서 사용합니다.')
+    } else if (probe.code !== 2) {
+      die(`원격 장부를 확인하지 못했습니다. 새 장부를 만들지 않습니다.\n${probe.err || probe.out}`)
+    }
+    // Persist only a verified choice; failed bootstrap must be retryable.
+    if (!r.source.startsWith('git config')) gitOrDie(['config', 'axmap.remote', remote], { cwd: root })
+  }
+  // Reattach a surviving local branch after .axmap was removed.
+  if (!base) {
+    const local = git(['rev-parse', '--verify', '--quiet', LEDGER_BRANCH], { cwd: root })
+    if (local.code === 0) base = local.out
+  }
+  if (!base) {
     // 작업 트리를 건드리지 않고 고아 브랜치를 만드는 방법:
     // 빈 트리 -> 그 트리를 가리키는 부모 없는 커밋 -> 브랜치.
     const tree = gitOrDie(['mktree'], { cwd: root, input: '' }).out
@@ -1515,8 +1538,9 @@ function cmdInit(flags = {}) {
   // 임시 파일이 장부에 실리지 않게 한다 (writeFileAtomic 참고).
   ensureLedgerIgnore(root)
 
-  // 장부 worktree 가 본 저장소에서 untracked 로 보이지 않게 한다.
-  const gi = path.join(root, '.gitignore')
+  // Automatic preparation must not modify tracked project files.
+  const gi = path.resolve(root, gitOrDie(['rev-parse', '--git-path', 'info/exclude'], { cwd: root }).out)
+  fs.mkdirSync(path.dirname(gi), { recursive: true })
   const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : ''
   if (!cur.split(/\r?\n/).includes('.axmap/')) {
     fs.writeFileSync(gi, (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + '.axmap/\n')
@@ -1529,10 +1553,13 @@ function cmdInit(flags = {}) {
     warnSolo(r)
   }
 
-  ensureBus(root)
-  ensureUsers(root)
+  if (!flags['ledger-only']) {
+    ensureBus(root)
+    ensureUsers(root)
+  }
 
-  console.log(`준비 완료. 장부 ${LEDGER_BRANCH} · 쪽지함 ${BUS_BRANCH} · 사람별 상태 ${USERS_BRANCH}`)
+  console.log(flags['ledger-only'] ? `장부 자동 준비 완료: ${LEDGER_BRANCH}` :
+    `준비 완료. 장부 ${LEDGER_BRANCH} · 쪽지함 ${BUS_BRANCH} · 사람별 상태 ${USERS_BRANCH}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1541,7 +1568,7 @@ function cmdInit(flags = {}) {
 
 function cmdClaim(positional, flags) {
   const root = repoRoot()
-  requireLedger(root)
+  requireLedger(root, flags)
   const me = agentName(flags)
   const session = resolveSessionId(flags)
   warnRetiredTakeover(flags, 'claim')
@@ -1653,7 +1680,9 @@ function cmdClaim(positional, flags) {
 
 function cmdRelease(positional, flags) {
   const root = repoRoot()
-  requireLedger(root)
+  // A context switch must not initialize a repository merely to leave it.
+  if (flags['if-present'] && !fs.existsSync(path.join(ledgerDir(root), '.git'))) process.exit(5)
+  requireLedger(root, flags)
   const me = agentName(flags)
   const session = resolveSessionId(flags)
   // 다른 세션이 잡은 것까지 함께 푸는 문. 기본은 **이 세션이 잡은 것만**이다.
@@ -1730,7 +1759,7 @@ function cmdRelease(positional, flags) {
 
 function cmdRenew(flags) {
   const root = repoRoot()
-  requireLedger(root)
+  requireLedger(root, flags)
   const me = agentName(flags)
   const session = resolveSessionId(flags)
   const ttlMs = parseTtl(flags.ttl)
@@ -1775,7 +1804,7 @@ function cmdRenew(flags) {
 
 function cmdStatus(flags) {
   const root = repoRoot()
-  requireLedger(root)
+  requireLedger(root, flags)
   syncLedger(root)
   const t = now()
   const all = readClaims(root)
@@ -1843,7 +1872,7 @@ function cmdVerify(flags) {
   // commitAndPush 가 --no-verify 를 쓰므로 보통은 여기 오지 않지만,
   // 사람이 장부를 손으로 고칠 때를 대비한 두 번째 그물이다.
   if (isLedgerWorktree(root)) return
-  requireLedger(root)
+  requireLedger(root, flags)
   const me = agentName(flags)
   syncLedger(root)
 
@@ -2149,7 +2178,7 @@ function cmdAudit(flags) {
     //    받으면 덮어쓴다. 받은 자리에서 sha 로 굳힌다.
     tip = gitOrDie(['rev-parse', 'FETCH_HEAD'], { cwd: root }).out
   } else {
-    requireLedger(root)
+    requireLedger(root, flags)
     tip = gitOrDie(['rev-parse', 'HEAD'], { cwd: dir }).out
   }
 

@@ -46,8 +46,6 @@ import path from 'node:path'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
-import { readTarget } from '../src/repotarget.mjs'
-
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 /**
@@ -59,6 +57,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
  */
 const SELF = path.resolve(HERE, '..')
 const CLI = path.join(SELF, 'bin', 'axmap.mjs')
+// Vendored copies may omit package.json; the protocol handshake must still work.
+const VERSION = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(SELF, 'package.json'), 'utf8')).version } catch { return 'unknown' }
+})()
 
 /**
  * 대상 저장소 — **지금 이 서버가 겨누고 있는 폴더.**
@@ -67,32 +69,52 @@ const CLI = path.join(SELF, 'bin', 'axmap.mjs')
  * 끝이어서, 사람이 앱에서 다른 저장소를 열어도 MCP 는 처음 폴더를 계속 붙잡고 있었다.
  * 지금은 **도구를 부를 때마다** `syncRepo()` 가 다시 정한다.
  */
+let clientRoots = null
+let rootsError = null
+let rootsSupported = false
+let rootsTask = null
+let rootsGeneration = 0
+let rootRequestId = 0
+const pendingRoots = new Map()
 let REPO = resolveRepo()
 
-/**
- * 대상 저장소를 정하는 규칙.
- *
- * 🔴 **사람에게는 아무것도 묻지 않는다.** 파일 한 개를 읽고 git 에게 한 번 물어보는
- *    것이 전부다. 사람의 입력은 앱에서 폴더를 고르는 그 한 번뿐이다.
- *
- * 순서에 근거가 있다.
- *
- *   1. `AXMAP_REPO` — 사람이 "여기로 고정" 이라고 **명시한** 것. 명시는 항상 이긴다.
- *      뒤로 미루면 고정해 둔 사람이 "왜 안 지켜지지" 를 겪고, 그러면 설정을 못 믿는다.
- *      (`tools/mcp-register.mjs` 는 이 값을 **일부러 안 적는다** — 적어 두면 등록은
- *      전역인데 대상은 한 곳으로 굳어, 다른 저장소를 열어도 엉뚱한 장부에 쌓인다.)
- *   2. `~/.axmap/current.json` — 앱에서 [폴더 열기] 로 **고른** 것. (`src/repotarget.mjs`)
- *   3. git 루트 — CLI 를 `FE/` 같은 하위 폴더에서 켰어도 저장소 하나를 가리키게 한다.
- *      `bin/axmap.mjs` 의 `repoRoot()` 가 처음부터 이렇게 했다. 여기만 안 하고 있었다.
- *   4. cwd — git 저장소가 아닐 때의 마지막 답.
- */
-function resolveRepo() {
-  if (process.env.AXMAP_REPO) return path.resolve(process.env.AXMAP_REPO)
-  const chosen = readTarget()
-  if (chosen) return chosen
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', windowsHide: true })
+function gitRoot(cwd) {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', windowsHide: true })
   const top = r.status === 0 ? (r.stdout ?? '').trim() : ''
-  return path.resolve(top || process.cwd())
+  return top ? fs.realpathSync(top) : null
+}
+
+/** Explicit pin > per-call cwd > client roots > launch cwd.
+ * A global desktop selection must never redirect another CLI session. */
+function resolveRepo(args = {}) {
+  if (process.env.AXMAP_REPO) {
+    const pinned = path.resolve(process.env.AXMAP_REPO)
+    return gitRoot(pinned) || pinned
+  }
+  if (args.cwd !== undefined) {
+    if (typeof args.cwd !== 'string' || !path.isAbsolute(args.cwd)) {
+      throw new Error('cwd 는 현재 작업 폴더의 절대 경로여야 합니다.')
+    }
+    const top = gitRoot(args.cwd)
+    if (!top) throw new Error(`작업 폴더에서 Git 저장소를 찾지 못했습니다: ${args.cwd}`)
+    return top
+  }
+  if (rootsError) throw new Error(`작업 폴더를 확인하지 못했습니다: ${rootsError}`)
+  if (clientRoots !== null) {
+    const dirs = [...new Set(clientRoots.map((root) => {
+      if (typeof root?.uri !== 'string' || !root.uri.startsWith('file:')) {
+        throw new Error('클라이언트가 유효한 file:// 작업 폴더를 보내지 않았습니다.')
+      }
+      const top = gitRoot(fileURLToPath(root.uri))
+      if (!top) throw new Error(`작업 폴더에서 Git 저장소를 찾지 못했습니다: ${root.uri}`)
+      return top
+    }))]
+    if (dirs.length === 1) return dirs[0]
+    const launched = gitRoot(process.cwd())
+    if (dirs.includes(launched)) return launched
+    throw new Error('작업 저장소를 하나로 정할 수 없습니다. 도구의 cwd 에 작업 폴더 절대 경로를 지정하세요.')
+  }
+  return gitRoot(process.cwd()) || process.cwd()
 }
 
 /** axMap 저장소 자신을 겨누고 있는가. 브리핑이 무엇을 읽을지가 여기서 갈린다. */
@@ -363,28 +385,13 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
 
-  /**
-   * 🔴 왜 `init` 이 MCP 도구여야 하는가.
-   *
-   * 장부 없는 저장소에서 첫 `ax_claim` 은 이렇게 떨어진다:
-   *
-   *     장부가 없습니다. 먼저 실행하세요:
-   *       axmap init
-   *
-   * 메시지는 정확한데 **그 명령을 부를 방법이 도구 목록에 없었다.** 에이전트는
-   * 지시를 읽고도 실행할 수 없고, 사람이 셸로 내려가야만 풀린다. 붙이자마자
-   * 막히는 벽이 정확히 여기였다 — 그리고 이 저장소 안에서만 테스트하면
-   * 장부가 이미 있으므로 한 번도 안 밟는다.
-   *
-   * 이 도구는 판정을 새로 하지 않는다. `bin/axmap.mjs init` 을 그대로 부른다.
-   */
   {
     name: 'ax_init',
     description:
-      '이 저장소에 장부가 없을 때 한 번 부른다. 장부 worktree(.axmap/ledger)와 브랜치(axmap/claims)를 만든다. '
+      '명시적으로 장부와 부가 저장소를 준비한다. 일반적인 선점·조회는 장부를 자동으로 준비하므로 먼저 부를 필요가 없다. '
       + '이미 있으면 아무것도 바꾸지 않으므로 여러 번 불러도 안전하다. '
-      + 'ax_claim 이 "장부가 없습니다" 로 실패하면 이것을 부른 뒤 다시 claim 하십시오.',
-    inputSchema: { type: 'object', properties: {} },
+      + '원격을 직접 고르려면 remote 에 Git 원격 이름을 지정한다.',
+    inputSchema: { type: 'object', properties: { remote: { type: 'string', description: 'Git 원격 이름' } } },
   },
   {
     name: 'ax_claim',
@@ -472,6 +479,13 @@ const TOOLS = [
 ]
 
 // ── 브리핑 ──────────────────────────────────────────────────────────────────
+
+for (const tool of TOOLS) {
+  tool.inputSchema.properties.cwd = {
+    type: 'string',
+    description: '현재 작업 폴더의 절대 경로. roots 미지원 또는 여러 repo가 열려 있을 때 지정. 생략하면 세션의 작업 repo를 사용한다.',
+  }
+}
 
 // `SELF` · `REPO` · `isForeign()` 은 파일 맨 위에 있다. 기준은 거기 적어 두었다.
 
@@ -691,14 +705,8 @@ function brief() {
     }
   }
 
-  // 🔴 막다른 길을 미리 없앤다. 장부가 없으면 claim 이 전부 실패하는데,
-  //    브리핑은 보통 claim 보다 먼저 불린다. 여기서 말해 주면 한 번에 이어진다.
-  if (!fs.existsSync(path.join(REPO, '.axmap', 'ledger', '.git'))) {
-    out.push('## 🔴 이 저장소에는 아직 장부가 없다')
-    out.push('')
-    out.push('`ax_init` 을 먼저 부른다. 그 전에는 claim 이 전부 실패한다.')
-    out.push('')
-  }
+  out.push('장부는 선점·조회 시 자동으로 준비한다. 별도 `ax_init` 호출은 필요 없다.')
+  out.push('')
 
   out.push('## 이 도구를 쓰는 순서')
   out.push('')
@@ -725,7 +733,7 @@ function brief() {
  * 지금 `REPO` 가 아니라 **떠나는 저장소**를 겨눠야 한다.
  */
 function releaseAllIn(dir) {
-  const r = spawnSync(process.execPath, [CLI, 'release'], {
+  const r = spawnSync(process.execPath, [CLI, 'release', '--if-present'], {
     cwd: dir,
     encoding: 'utf8',
     windowsHide: true,
@@ -738,7 +746,7 @@ function releaseAllIn(dir) {
 }
 
 /**
- * 사람이 앱에서 다른 저장소를 열었으면 따라간다.
+ * 이 세션의 클라이언트 작업 폴더가 바뀌면 따라간다.
  *
  * 🔴 **떠나기 전에 잡아둔 것을 전부 반납한다.**
  *
@@ -754,8 +762,8 @@ function releaseAllIn(dir) {
  * 반납 실패를 **숨기지 않는다.** 조용히 넘어가면 위의 상황이 그대로 일어나는데
  * 아무도 그것을 모른다.
  */
-function syncRepo() {
-  const next = resolveRepo()
+function syncRepo(args) {
+  const next = resolveRepo(args)
   if (next === REPO) return null
   const from = REPO
   const r = releaseAllIn(from)
@@ -785,37 +793,10 @@ ${s.out}`
  *    `ax_claim` 이 쓰는 장부가 서로 다른 저장소일 수 있다. 그러면 에이전트는
  *    자기가 본 것을 근거로 확신 있게 틀린 답을 만든다 — 사람이 못 잡는 종류다.
  */
-/**
- * 🔴 **막다른 길을 남기지 않는다 — 한 곳에서.**
- *
- * 장부가 없는 저장소에서 CLI 는 어느 명령이든 이렇게 답한다:
- *
- *     장부가 없습니다. 먼저 실행하세요:
- *       axmap init
- *
- * 메시지는 정확한데 **에이전트에게는 셸이 없다.** 부를 수 있는 이름으로 바꿔줘야
- * 한다. 예전에는 그 변환이 `ax_claim` 안에만 있었고, `ax_check` · `ax_status` ·
- * `ax_release` · `ax_renew` 는 원문을 그대로 냈다. 하필 `ax_check` 는 설명이
- * "작업 계획을 세울 때 쓴다" 라 **claim 보다 먼저 불리는 도구**다 — 처음 온
- * 사람은 고쳐둔 안내를 못 보고 원래의 막다른 길을 먼저 밟았다.
- *
- * 그래서 도구마다 복사하지 않고 **길목에서 한 번** 본다. 도구가 늘어나도
- * 새 도구가 이 안내를 빠뜨릴 수 없고, 다섯 군데가 따로 낡지도 않는다.
- * 판정하지 않고 **CLI 가 낸 말을 볼 뿐**이라는 점이 중요하다 — 도구 이름
- * 목록으로 거르면 그 목록이 코드보다 먼저 낡는다.
- */
-const INIT_HINT = '\n\n→ MCP 에서는 ax_init 을 부르십시오. 그 뒤 이 도구를 다시 시도하면 됩니다.'
-
-function withInitHint(r) {
-  if (r.ok) return r
-  const t = r.text ?? ''
-  if (!t.includes('장부가 없습니다') || t.includes('ax_init')) return r
-  return { ...r, text: t + INIT_HINT }
-}
-
 function callTool(name, args = {}) {
-  const switched = syncRepo()
-  const r = withInitHint(dispatch(name, args))
+  let switched
+  try { switched = syncRepo(args) } catch (e) { return { ok: false, text: e.message } }
+  const r = dispatch(name, args)
   return switched ? { ...r, text: `${switchNotice(switched)}
 
 ${r.text}` } : r
@@ -828,7 +809,7 @@ function dispatch(name, args = {}) {
     case 'ax_brief':
       return { ok: true, text: brief() }
     case 'ax_init': {
-      const r = cli(['init'])
+      const r = cli(['init', ...(args.remote ? ['--remote', String(args.remote)] : [])])
       return {
         ok: r.code === 0,
         text: r.code === 0
@@ -984,26 +965,57 @@ function send(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n')
 }
 
-function handle(req) {
+function refreshRoots() {
+  const generation = ++rootsGeneration
+  const id = `axmap-roots-${++rootRequestId}`
+  rootsTask = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingRoots.delete(id)
+      if (generation === rootsGeneration) rootsError = 'roots/list 응답 시간 초과'
+      resolve()
+    }, 5000)
+    pendingRoots.set(id, (msg) => {
+      clearTimeout(timer)
+      if (generation === rootsGeneration) {
+        const roots = msg.result?.roots
+        rootsError = msg.error?.message || (!Array.isArray(roots) ? '잘못된 roots/list 응답' : null)
+        clientRoots = Array.isArray(roots) ? roots : null
+      }
+      resolve()
+    })
+    send({ jsonrpc: '2.0', id, method: 'roots/list' })
+  })
+}
+
+async function handle(req) {
   const { id, method, params } = req
 
   if (method === 'initialize') {
+    rootsSupported = !!params?.capabilities?.roots
     return {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'axmap', version: '0.1.0' },
+      serverInfo: { name: 'axmap', version: VERSION },
     }
   }
   if (method === 'tools/list') return { tools: TOOLS }
   if (method === 'tools/call') {
+    if (rootsSupported && !process.env.AXMAP_REPO) {
+      if (!rootsTask || rootsError) refreshRoots()
+      // A change notification may replace the task while the previous reply arrives.
+      let task
+      do { task = rootsTask; await task } while (task !== rootsTask)
+    }
     const r = callTool(params?.name, params?.arguments ?? {})
-    return { content: [{ type: 'text', text: r.text + unreadBanner(params?.name, r.text) }], isError: !r.ok }
+    return { content: [{ type: 'text', text: r.text + (r.ok ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
   }
   if (method === 'ping') return {}
   return null // 알림이거나 지원하지 않는 메서드
 }
 
 const rl = readline.createInterface({ input: process.stdin })
+// Execute tools in order, but keep reading client replies while a tool awaits roots.
+let requests = Promise.resolve()
 rl.on('line', (line) => {
   const s = line.trim()
   if (!s) return
@@ -1013,18 +1025,29 @@ rl.on('line', (line) => {
   } catch {
     return
   }
-  // 알림(id 없음)에는 답하지 않는다
-  if (req.id === undefined) return
-  try {
-    const result = handle(req)
-    if (result === null) {
-      send({ jsonrpc: '2.0', id: req.id, error: { code: -32601, message: `지원하지 않는 메서드: ${req.method}` } })
-    } else {
-      send({ jsonrpc: '2.0', id: req.id, result })
-    }
-  } catch (e) {
-    send({ jsonrpc: '2.0', id: req.id, error: { code: -32603, message: e.message } })
+  if (!req || typeof req !== 'object') return
+  if (!req.method) {
+    const done = pendingRoots.get(req.id)
+    if (done) { pendingRoots.delete(req.id); done(req) }
+    return
   }
+  if (req.id === undefined) {
+    if (rootsSupported && !process.env.AXMAP_REPO &&
+      ['notifications/initialized', 'notifications/roots/list_changed'].includes(req.method)) refreshRoots()
+    return
+  }
+  requests = requests.then(async () => {
+    try {
+      const result = await handle(req)
+      if (result === null) {
+        send({ jsonrpc: '2.0', id: req.id, error: { code: -32601, message: `지원하지 않는 메서드: ${req.method}` } })
+      } else {
+        send({ jsonrpc: '2.0', id: req.id, result })
+      }
+    } catch (e) {
+      send({ jsonrpc: '2.0', id: req.id, error: { code: -32603, message: e.message } })
+    }
+  })
 })
 
 process.stderr.write(`axMap MCP · 저장소 ${REPO} · 에이전트 ${AGENT} (${ACTOR})\n`)

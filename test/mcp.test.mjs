@@ -25,7 +25,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const SELF = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = path.join(SELF, 'mcp', 'server.mjs')
@@ -84,13 +84,11 @@ after(() => {
 })
 
 describe('남의 저장소에 붙었을 때', () => {
-  it('🔴 장부가 없으면 claim 이 부를 수 있는 이름을 알려준다 — 막다른 길을 남기지 않는다', () => {
-    const r = rpc([call(1, 'ax_claim', { paths: ['app.js'], intent: '무언가' })])
+  it('장부가 없는 repo에서도 init 없이 첫 claim 이 성공한다', () => {
+    const r = rpc([call(1, 'ax_claim', { paths: ['app.js'], intent: '무언가' }), call(2, 'ax_release')])
     const t = textOf(r.get(1))
-    assert.equal(r.get(1).result.isError, true, '장부가 없는데 성공으로 내면 안 된다')
-    assert.match(t, /장부가 없습니다/)
-    // CLI 는 셸 명령을 안내한다. 에이전트에게는 셸이 없으므로 도구 이름이 함께 있어야 한다.
-    assert.match(t, /ax_init/, 'MCP 에서 부를 수 있는 이름이 안내에 없다')
+    assert.equal(r.get(1).result.isError, false, t)
+    assert.ok(fs.existsSync(path.join(repo, '.axmap', 'ledger', '.git')))
   })
 
   it('🔴 ax_init 이 도구 목록에 있다', () => {
@@ -282,10 +280,11 @@ function rpcRaw(requests, { cwd, env = {} }) {
 }
 
 /** 서버를 띄워 두고 요청을 하나씩 주고받는다. 도중에 대상을 바꿔야 하므로 필요하다. */
-function openServer({ cwd, env = {} }) {
+function openServer({ cwd, env = {}, roots = [] }) {
   const e = { ...process.env, AXMAP_AGENT: 'switcher', ...env }
   delete e.AXMAP_REPO
   const p = spawn(process.execPath, [SERVER], { cwd, env: e, stdio: ['pipe', 'pipe', 'pipe'] })
+  p.stderr.resume()
   const waiting = new Map()
   let buf = ''
   p.stdout.on('data', (d) => {
@@ -296,19 +295,28 @@ function openServer({ cwd, env = {} }) {
       buf = buf.slice(i + 1)
       if (!line) continue
       const m = JSON.parse(line)
+      if (m.method === 'roots/list') {
+        p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: { roots } }) + '\n')
+        continue
+      }
       const done = waiting.get(m.id)
       if (done) { waiting.delete(m.id); done(m) }
     }
   })
   let id = 0
-  const send = (method, params) => new Promise((res) => {
+  const send = (method, params) => new Promise((res, reject) => {
     const mine = ++id
-    waiting.set(mine, res)
+    const timer = setTimeout(() => reject(new Error(`MCP 응답 시간 초과: ${method}`)), 15000)
+    waiting.set(mine, (msg) => { clearTimeout(timer); res(msg) })
     p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: mine, method, params }) + '\n')
   })
   return {
     send,
     tool: (name, args = {}) => send('tools/call', { name, arguments: args }),
+    setRoots: (next) => {
+      roots = next
+      p.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' }) + '\n')
+    },
     close: () => p.kill(),
   }
 }
@@ -343,10 +351,10 @@ describe('대상 저장소를 요청마다 다시 정한다', () => {
     assert.equal(norm(targetOf(t)), norm(A), `하위 폴더를 겨눴다: ${targetOf(t)}`)
   })
 
-  it('앱이 고른 저장소를 따라간다 (~/.axmap/current.json)', () => {
+  it('앱의 전역 타겟이 다른 repo여도 이 세션의 작업 repo를 사용한다', () => {
     setTarget(B)
     const t = textOf(rpcRaw([call(1, 'ax_brief')], { cwd: A, env: { AXMAP_STATE_DIR: stateDir } }).get(1))
-    assert.equal(norm(targetOf(t)), norm(B), '앱이 고른 저장소를 안 따라갔다')
+    assert.equal(norm(targetOf(t)), norm(A), '전역 타겟 때문에 다른 repo를 겨눴다')
   })
 
   it('AXMAP_REPO 로 고정해 두면 그것이 이긴다 — 명시가 항상 우선', () => {
@@ -355,17 +363,74 @@ describe('대상 저장소를 요청마다 다시 정한다', () => {
     assert.equal(norm(targetOf(t)), norm(A), '고정해 둔 값이 무시됐다')
   })
 
+  it('client roots 가 시작 repo보다 우선하고 새 repo를 자동 준비한다', async () => {
+    const fresh = makeRepo('roots-fresh')
+    const launch = makeRepo('unused-launch')
+    const s = openServer({ cwd: launch, roots: [{ uri: pathToFileURL(fresh).href }] })
+    try {
+      await s.send('initialize', { capabilities: { roots: {} } })
+      const r = await s.tool('ax_claim', { paths: ['app.js'], intent: 'new repo' })
+      assert.equal(r.result.isError, false, textOf(r))
+      assert.ok(fs.existsSync(path.join(fresh, '.axmap', 'ledger', '.git')))
+      assert.equal(fs.existsSync(path.join(launch, '.axmap', 'ledger')), false, '사용하지 않은 시작 repo를 초기화했다')
+      const brief = await s.tool('ax_brief')
+      assert.equal(norm(targetOf(textOf(brief))), norm(fresh))
+    } finally {
+      s.close()
+      fs.rmSync(fresh, { recursive: true, force: true })
+      fs.rmSync(launch, { recursive: true, force: true })
+    }
+  })
+
+  it('여러 roots 중 repo를 못 고르면 중단하고 cwd 로 지정할 수 있다', async () => {
+    const s = openServer({ cwd: stateDir, roots: [{ uri: pathToFileURL(A).href }, { uri: pathToFileURL(B).href }] })
+    try {
+      await s.send('initialize', { capabilities: { roots: {} } })
+      const ambiguous = await s.tool('ax_status')
+      assert.equal(ambiguous.result.isError, true)
+      assert.match(textOf(ambiguous), /하나로 정할 수 없습니다/)
+      const chosen = await s.tool('ax_brief', { cwd: B })
+      assert.equal(chosen.result.isError, false, textOf(chosen))
+      assert.equal(norm(targetOf(textOf(chosen))), norm(B))
+    } finally { s.close() }
+  })
+
+  it('roots 를 못 읽으면 시작 repo로 되돌아가서 선점하지 않는다', async () => {
+    const s = openServer({ cwd: A, roots: null })
+    try {
+      await s.send('initialize', { capabilities: { roots: {} } })
+      const r = await s.tool('ax_claim', { paths: ['never-created'], intent: 'must fail' })
+      assert.equal(r.result.isError, true)
+      assert.match(textOf(r), /작업 폴더를 확인하지 못했습니다/)
+    } finally { s.close() }
+  })
+
+  it('201과 109에 해당하는 두 세션은 전역 앱 타겟이 바뀌어도 독립적으로 선점한다', async () => {
+    const a = openServer({ cwd: A, env: { AXMAP_STATE_DIR: stateDir } })
+    const b = openServer({ cwd: B, env: { AXMAP_STATE_DIR: stateDir } })
+    try {
+      await Promise.all([a.send('initialize', { capabilities: {} }), b.send('initialize', { capabilities: {} })])
+      const claims = await Promise.all([a.tool('ax_claim', { paths: ['app.js'] }), b.tool('ax_claim', { paths: ['app.js'] })])
+      for (const r of claims) assert.equal(r.result.isError, false, textOf(r))
+      setTarget(B)
+      const briefs = await Promise.all([a.tool('ax_brief'), b.tool('ax_brief')])
+      assert.equal(norm(targetOf(textOf(briefs[0]))), norm(A))
+      assert.equal(norm(targetOf(textOf(briefs[1]))), norm(B))
+      await Promise.all([a.tool('ax_release'), b.tool('ax_release')])
+    } finally { a.close(); b.close() }
+  })
+
   it('🔴 도중에 대상이 바뀌면 이전 저장소의 claim 을 전부 반납한다', async () => {
     setTarget(A)
-    const s = openServer({ cwd: A, env: { AXMAP_STATE_DIR: stateDir } })
+    const s = openServer({ cwd: A, env: { AXMAP_STATE_DIR: stateDir }, roots: [{ uri: pathToFileURL(A).href }] })
     try {
-      await s.send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '0' } })
+      await s.send('initialize', { protocolVersion: '2024-11-05', capabilities: { roots: { listChanged: true } }, clientInfo: { name: 't', version: '0' } })
 
       const claimed = await s.tool('ax_claim', { paths: ['app.js'], intent: 'A 에서 일한다' })
       assert.equal(claimed.result.isError, false, `A 에서 claim 실패: ${textOf(claimed)}`)
 
-      // 사람이 앱에서 B 를 열었다.
-      setTarget(B)
+      // 클라이언트가 이 세션의 작업 폴더를 B 로 바꿨다.
+      s.setRoots([{ uri: pathToFileURL(B).href }])
 
       const after1 = await s.tool('ax_status')
       const t = textOf(after1)
@@ -455,7 +520,7 @@ describe('장부가 없을 때 — 막다른 길을 남기지 않는다', () => 
    *    불리는 도구**다. 처음 온 사람은 고쳐둔 안내를 못 보고 원래의 막다른 길을
    *    먼저 밟는다 — 에이전트에게는 셸이 없으므로 거기서 멈춘다.
    */
-  it('🔴 ax_check 도 ax_init 을 알려준다 — claim 보다 먼저 불리는 도구다', () => {
+  it('ax_check 가 먼저 불려도 장부를 자동 준비하고 JSON을 읽는다', () => {
     const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap-noledger-'))
     try {
       const g = (...a) => spawnSync('git', a, { cwd: fresh, encoding: 'utf8', windowsHide: true })
@@ -469,9 +534,9 @@ describe('장부가 없을 때 — 막다른 길을 남기지 않는다', () => 
 
       const r = rpc([call(1, 'ax_check', { paths: ['app.js'] })], { repoPath: fresh })
       const t = textOf(r.get(1))
-      assert.equal(r.get(1).result.isError, true, `장부가 없는데 통과로 냈다:\n${t}`)
-      assert.match(t, /장부가 없습니다/)
-      assert.match(t, /ax_init/, 'MCP 에서 부를 수 있는 이름이 안내에 없다 — 에이전트에게는 셸이 없다')
+      assert.equal(r.get(1).result.isError, false, t)
+      assert.match(t, /겹치지 않습니다/)
+      assert.ok(fs.existsSync(path.join(fresh, '.axmap', 'ledger', '.git')))
     } finally {
       try { fs.rmSync(fresh, { recursive: true, force: true }) } catch { /* 지워지면 그만 */ }
     }

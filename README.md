@@ -1,6 +1,6 @@
 # axMap
 
-[![English](docs/assets/readme-en.svg)](README.md) [![한국어](docs/assets/readme-ko.svg)](README.ko.md)
+[![English](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-en.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.md) [![한국어](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-ko.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.ko.md)
 
 **A CLI tool that helps AI agents avoid conflicting edits by claiming paths before working in the same Git repository.**
 
@@ -26,7 +26,24 @@ axmap doctor
 Restart your AI tool after setup to use MCP.
 People and agents working together must share the same remote ledger to see each other's claims.
 
-See [docs/INSTALL.md](docs/INSTALL.md) for installation and configuration details (Korean).
+See [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) for installation and configuration details (Korean).
+
+## Automatic repository setup in 1.3.0
+
+Set up axMap once, then open Codex or another AI CLI in any Git repository. axMap selects that session's repository and prepares its ledger on the first status or claim request. There is no per-repository `axmap init` step.
+
+Existing remote ledgers are reused. Linked worktrees share one ledger, and simultaneous sessions in different repositories keep independent targets. Remote access failures stop the request instead of creating a separate ledger.
+
+MCP follows workspace roots supplied by the client. When roots are unsupported, it uses the launch directory; pass the absolute working directory through the tool's `cwd` argument for later directory changes. Run `axmap hook install` in each repository where you want commit enforcement.
+
+To upgrade an existing installation, run this once from a working repository, then restart your AI CLI:
+
+```bash
+npm install -g axmap-cli@latest
+axmap setup
+```
+
+`setup` refreshes the installed MCP and hook copy as well as its registration. Subsequent repository changes do not require another setup or init.
 
 ## Workflow
 
@@ -64,7 +81,7 @@ Commit hooks compare staged changes with claimed paths.
 `axmap audit` replays the ledger history to check for rule violations.
 
 axMap reports unreadable state and refuses operations it cannot safely evaluate.
-The protocol is documented in [docs/SPEC.md](docs/SPEC.md), and its invariants in [docs/INVARIANTS.md](docs/INVARIANTS.md) (Korean).
+The protocol is documented in [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md), and its invariants in [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md) (Korean).
 
 ## Using AI tools
 
@@ -77,7 +94,7 @@ If a claim is rejected, check its owner and choose another task with no overlapp
 Release your claims with ax_release when work is done.
 ```
 
-See [mcp/README.md](mcp/README.md) for connection instructions and the tool list (Korean).
+See [mcp/README.md](https://github.com/rl2aderjoon/axmap/blob/main/mcp/README.md) for connection instructions and the tool list (Korean).
 
 ## Development and verification
 
@@ -98,12 +115,12 @@ The following supporting documents are currently in Korean.
 
 | Document | Contents |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | Rules for working on the source |
-| [docs/INSTALL.md](docs/INSTALL.md) | Installation and usage |
-| [docs/SPEC.md](docs/SPEC.md) | Commands and the claim protocol |
-| [docs/INVARIANTS.md](docs/INVARIANTS.md) | Invariants and verification criteria |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Product scope and design decisions |
+| [CLAUDE.md](https://github.com/rl2aderjoon/axmap/blob/main/CLAUDE.md) | Rules for working on the source |
+| [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) | Installation and usage |
+| [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md) | Commands and the claim protocol |
+| [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md) | Invariants and verification criteria |
+| [docs/DECISIONS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/DECISIONS.md) | Product scope and design decisions |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/rl2aderjoon/axmap/blob/main/LICENSE)

@@ -153,16 +153,20 @@ describe('🔴 장부가 정말 없을 때는 "못 찾음" 으로 뭉개지 않�
   })
 
   it('메인 체크아웃에서 거부한다', () => {
+    fs.appendFileSync(path.join(bare, 'a.txt'), 'unclaimed\n')
+    git(bare, 'add', 'a.txt')
     const r = ax(['verify'], bare)
-    assert.equal(r.status, 1)
-    assert.match(r.stderr, /장부가 없습니다/)
+    assert.equal(r.status, 3)
+    assert.match(r.stderr, /claim 하지 않은/)
+    assert.ok(fs.existsSync(path.join(bare, '.axmap', 'ledger', '.git')))
   })
 
   it('링크된 worktree 에서도 거부한다 — 여기서 통과시키면 장부 없이 커밋이 지나간다', () => {
+    fs.appendFileSync(path.join(bareWt, 'a.txt'), 'unclaimed\n')
+    git(bareWt, 'add', 'a.txt')
     const r = ax(['verify'], bareWt)
-    assert.equal(r.status, 1)
-    assert.match(r.stderr, /장부가 없습니다/)
-    // 어디를 보고 없다고 하는지 밝힌다. 안 밝히면 여기에 장부를 또 만들게 된다.
-    assert.match(r.stderr, /찾아본 곳/)
+    assert.equal(r.status, 3)
+    assert.match(r.stderr, /claim 하지 않은/)
+    assert.equal(fs.existsSync(path.join(bareWt, '.axmap', 'ledger')), false)
   })
 })
