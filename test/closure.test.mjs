@@ -56,6 +56,7 @@ const EXPECTED = [
   'governance/vote.mjs',
   'mcp/server.mjs',
   'src/governance.mjs',
+  'src/identity.mjs',
   'src/invariants.mjs',
   // `doctor` 가 "MCP 가 어디에 등록돼 있나" 를 읽는 자리. 등록기(tools/mcp-register.mjs)와
   // 같은 판정을 두 벌 쓰지 않으려고 뺀 것이라, 사본에도 같이 가야 한다 —

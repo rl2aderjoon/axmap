@@ -42,7 +42,8 @@ function rpc(requests, { repoPath = repo, agent = 'tester' } = {}) {
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     ...requests,
   ]
-  const env = { ...process.env, AXMAP_REPO: repoPath, AXMAP_AGENT: agent }
+  // Different people need different email identities, even in one fixture repo.
+  const env = { ...process.env, AXMAP_REPO: repoPath, AXMAP_AGENT: agent, AXMAP_AGENT_EMAIL: `${agent}@example.com` }
   const r = spawnSync(process.execPath, [SERVER], {
     input: lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
     encoding: 'utf8',
@@ -497,16 +498,17 @@ describe('안 읽은 쪽지 배너', () => {
   it('🔴 ax_inbox 로 목록을 열면 배너가 줄어든다 — 읽었는데 안 읽었다고 하면 배너는 배경이 된다', () => {
     const sends = [call(1, 'ax_init')]
     for (let i = 0; i < 4; i++) {
-      sends.push(call(2 + i, 'ax_send', { to: 'reader2', subject: `함${i}`, body: `본문${i}` }))
+      sends.push(call(2 + i, 'ax_send', { to: 'inbox-recipient', subject: `함${i}`, body: `본문${i}` }))
     }
-    rpc(sends, { agent: 'sender2' })
+    const sent = rpc(sends, { agent: 'sender2' })
+    for (let i = 0; i < 4; i++) assert.equal(sent.get(2 + i).result.isError, false, textOf(sent.get(2 + i)))
 
     // 쪽지함을 연다. 자르지 않고 전부 냈으므로 전부 읽음이 된다.
-    const inbox = rpc([call(1, 'ax_inbox', {})], { agent: 'reader2' })
+    const inbox = rpc([call(1, 'ax_inbox', {})], { agent: 'inbox-recipient' })
     assert.equal(inbox.get(1).result.isError, false, `쪽지함이 죽었다: ${textOf(inbox.get(1))}`)
     assert.match(textOf(inbox.get(1)), /함0/, '쪽지가 목록에 안 나왔다')
 
-    const after = textOf(rpc([call(1, 'ax_check', { paths: ['app.js'] })], { agent: 'reader2' }).get(1))
+    const after = textOf(rpc([call(1, 'ax_check', { paths: ['app.js'] })], { agent: 'inbox-recipient' }).get(1))
     assert.doesNotMatch(after, /안 읽은 쪽지/, `쪽지함을 열었는데 배너가 그대로다:\n${after}`)
   })
 })

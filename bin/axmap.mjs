@@ -47,6 +47,7 @@ import { stateDir } from '../src/repotarget.mjs'
 import { homeRegistrations } from '../src/mcpstate.mjs'
 import { compareBranchFor, formatOverlap } from '../src/overlap.mjs'
 import { withRepoLock } from '../src/repolock.mjs'
+import { readProfile, syncConfiguredProfile } from '../src/identity.mjs'
 
 /** 이 CLI 가 들어 있는 axMap 폴더. 갱신 확인과 setup 이 자기 위치를 알아야 한다. */
 const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -453,9 +454,17 @@ function unreadNotes(root, me) {
   }
   if (!found.length) return []
   let seen = ''
+  const email = (process.env.AXMAP_AGENT_EMAIL || git(['config', 'user.email'], { cwd: root }).out).trim().toLowerCase()
+  const mine = new Set([me.toLowerCase(), email].filter(Boolean))
+  try { const p = readProfile(); if (p) mine.add(p.name.toLowerCase()) } catch { /* profile sync reports it */ }
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(usersFilesDir(root), `${email}.json`), 'utf8'))
+    for (const n of [state.name, ...(state.aliases ?? [])]) if (n) mine.add(n.toLowerCase())
+    seen = state.seen ?? ''
+  } catch { /* no shared state */ }
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(root, '.axmap-bus-seen.json'), 'utf8'))
-    seen = raw[me] ?? ''
+    for (const [key, id] of Object.entries(raw)) if (mine.has(key.toLowerCase()) && id > seen) seen = id
   } catch { /* 처음이면 아무것도 안 읽은 것 */ }
 
   const out = []
@@ -471,8 +480,8 @@ function unreadNotes(root, me) {
     const from = g('from')
     const to = g('to')
     // 내가 보낸 것은 뺀다 — 자기 쪽지에 자기가 놀라면 안 된다.
-    if (from === me) continue
-    if (to !== me && to !== 'all') continue
+    if (g('fromEmail') ? mine.has(g('fromEmail').toLowerCase()) : mine.has(from.toLowerCase())) continue
+    if (!to.split(',').some((v) => v.trim().toLowerCase() === 'all' || mine.has(v.trim().toLowerCase()))) continue
     out.push({ id, from, subject: g('subject') })
   }
   return out
@@ -504,6 +513,11 @@ function markBusSeen(root, me, id) {
     all[me] = id
     fs.writeFileSync(file, JSON.stringify(all, null, 2) + '\n')
   } catch { /* 조용히 */ }
+  // Use the same email-keyed receipt as MCP, while retaining the legacy file
+  // for older installations that still share this checkout.
+  spawnSync(process.execPath, [path.join(SELF_ROOT, 'tools', 'bus.mjs'), 'seen', '--mine', id], {
+    cwd: root, env: { ...process.env, AXMAP_AGENT: me }, encoding: 'utf8', windowsHide: true,
+  })
 }
 
 /**
@@ -722,18 +736,10 @@ function claimsDir(root) {
   return path.join(ledgerDir(root), 'claims')
 }
 
-/**
- * 쪽지함은 **일부러 `root` 그대로 둔다.**
- *
- * 장부와 같은 `.axmap/` 아래라 같은 문제가 있지만(링크된 worktree 에는 없다),
- * 고치려면 `tools/bus.mjs` 의 `SEEN_FILE`·쪽지함 경로까지 같이 옮겨야 한다.
- * 한쪽만 옮기면 **읽는 곳과 쓰는 곳이 갈려** 읽음 표시가 어긋난다 —
- * 쪽지가 안 보이는 것보다 나쁘다. 장부와 달리 여기서는 못 찾아도 죽지 않고
- * "새 쪽지 없음" 으로 조용히 지나가므로, 링크된 worktree 에서 쪽지가 안 보이는
- * 것은 남는 구멍으로 적어 둔다.
- */
+/** Message and user worktrees follow the same common checkout as the ledger.
+ * Git identity is still read from the caller's working repository. */
 function busDir(root) {
-  return path.join(root, BUS_REL)
+  return path.join(axmapHome(root), BUS_REL)
 }
 
 /** 쪽지 파일이 실제로 쌓이는 곳. 브랜치 루트에 흩뿌리지 않고 한 폴더 아래 모은다. */
@@ -742,7 +748,7 @@ function busMessagesDir(root) {
 }
 
 function usersDir(root) {
-  return path.join(root, USERS_REL)
+  return path.join(axmapHome(root), USERS_REL)
 }
 
 /** 사람마다의 파일이 쌓이는 곳. `.gitattributes` 와 섞이지 않게 한 폴더 아래 모은다. */
@@ -1343,9 +1349,17 @@ function ensureOrphan(root, { branch, rel, dir, what, seed }) {
   const remote = r.source === 'ambiguous' ? null : r.name
 
   let base = null
-  if (remote && git(['fetch', '--quiet', remote, branch], { cwd: root }).code === 0) {
-    base = git(['rev-parse', 'FETCH_HEAD'], { cwd: root }).out
-  } else {
+  if (r.source === 'ambiguous') return fail({ err: '원격이 모호합니다. git config axmap.remote <원격>을 지정하세요.' })
+  if (remote) {
+    const exists = git(['ls-remote', '--exit-code', remote, `refs/heads/${branch}`], { cwd: root })
+    if (exists.code !== 0 && exists.code !== 2) return fail(exists)
+    if (exists.code === 0) {
+      const fetched = git(['fetch', '--quiet', remote, branch], { cwd: root })
+      if (fetched.code !== 0) return fail(fetched)
+      base = git(['rev-parse', 'FETCH_HEAD'], { cwd: root }).out
+    }
+  }
+  if (!base) {
     // 빈 트리 -> 부모 없는 커밋 -> 브랜치. 작업 트리를 건드리지 않는 고아 브랜치.
     const tree = git(['mktree'], { cwd: root, input: '' })
     if (tree.code !== 0) return fail(tree)
@@ -1360,6 +1374,8 @@ function ensureOrphan(root, { branch, rel, dir, what, seed }) {
   }
   const w = git(['worktree', 'add', '--quiet', dir, branch], { cwd: root })
   if (w.code !== 0) return fail(w)
+
+  excludeAxmap(root)
 
   seed(dir)
 
@@ -1384,6 +1400,16 @@ function ensureOrphan(root, { branch, rel, dir, what, seed }) {
     if (p.code !== 0) console.error(`경고: ${what} push 실패 - ${(p.err ?? '').split('\n')[0]}`)
   }
   return 'created'
+}
+
+function excludeAxmap(root) {
+  const file = path.resolve(root, gitOrDie(['rev-parse', '--git-path', 'info/exclude'], { cwd: root }).out)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+  for (const entry of ['.axmap/', '.axmap-bus-seen.json']) {
+    if (!text.split(/\r?\n/).includes(entry)) text += (text && !text.endsWith('\n') ? '\n' : '') + entry + '\n'
+  }
+  fs.writeFileSync(file, text)
 }
 
 function ensureBus(root) {
@@ -1424,7 +1450,7 @@ function cmdBusRepair() {
   const root = repoRoot()
   // .axmap 을 손으로 지웠어도 git 쪽에 worktree 등록이 남아 add 가 실패한다.
   git(['worktree', 'prune'], { cwd: root })
-  const r = ensureBus(root)
+  const r = withRepoLock(path.join(commonDir(root), 'axmap-init.lock'), () => ensureBus(root))
   if (r === 'failed') process.exit(1)
   console.log(
     r === 'ready'
@@ -1437,7 +1463,7 @@ function cmdBusRepair() {
 function cmdUsersRepair() {
   const root = repoRoot()
   git(['worktree', 'prune'], { cwd: root })
-  const r = ensureUsers(root)
+  const r = withRepoLock(path.join(commonDir(root), 'axmap-init.lock'), () => ensureUsers(root))
   if (r === 'failed') process.exit(1)
   console.log(
     r === 'ready'
@@ -2897,4 +2923,13 @@ switch (cmd) {
   default:
     console.log(HELP)
     process.exit(cmd ? 1 : 0)
+}
+
+// Setup stores a label, never a repository pin. Publish it only after an
+// actual successful collaboration command in the selected working repository.
+if (['init', 'claim', 'release', 'renew', 'status'].includes(cmd)) {
+  const warning = syncConfiguredProfile(process.cwd(), path.join(SELF_ROOT, 'tools', 'bus.mjs'), {
+    ...process.env, ...(flags.agent ? { AXMAP_AGENT: flags.agent } : {}),
+  })
+  if (warning) console.error(warning)
 }

@@ -31,7 +31,8 @@ test('setup from a non-Git folder is global and requires no repository', () => {
   assert.equal(r.status, 0, r.stderr + r.stdout)
   assert.match(r.stdout, /이 PC 전체/)
   assert.match(r.stdout, /global-person/)
-  assert.equal(fs.existsSync(path.join(home, '.axmap')), false)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.axmap', 'profile.json'), 'utf8')).name, 'global-person')
+  assert.equal(fs.existsSync(path.join(home, '.axmap', 'ledger')), false)
 })
 
 test('setup inside a repo still does not initialize it or use its local identity', () => {
@@ -65,4 +66,18 @@ test('an invalid explicit repo fails before registration', () => {
   assert.equal(r.status, 1)
   assert.match(r.stderr, /Git 저장소가 아닙니다/)
   assert.doesNotMatch(r.stdout, /mcp[\\/]install/)
+})
+
+test('setup stores a Unicode display name and preserves it on reinstall without changing Git', () => {
+  const cwd = repo('display-name')
+  const r = setup(cwd, '--name', '장효준', '--no-register', '--commands', 'none')
+  assert.equal(r.status, 0, r.stderr + r.stdout)
+  const p = path.join(home, '.axmap', 'profile.json')
+  assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).name, '장효준')
+  assert.match(setup(home, '--no-register', '--commands', 'none').stdout, /장효준/)
+  const g = spawnSync('git', ['config', 'user.name'], { cwd, env, encoding: 'utf8', windowsHide: true })
+  assert.equal(g.stdout.trim(), 'local-person')
+  const dry = setup(home, '--name', 'John Smith', '--dry-run', '--commands', 'none')
+  assert.equal(dry.status, 0, dry.stderr)
+  assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).name, '장효준')
 })

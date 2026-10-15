@@ -34,6 +34,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { agentNameError } from '../src/protocol.mjs'
+import { readProfile, profilePath, emailError } from '../src/identity.mjs'
+import { withRepoLock } from '../src/repolock.mjs'
+import { randomUUID } from 'node:crypto'
 
 /** **이 프로그램**의 뿌리. 데이터가 아니라 코드를 찾을 때만 쓴다 (`who` 의 axmap.mjs). */
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -85,7 +89,11 @@ const REPO = (() => {
 })()
 
 /** 쪽지 worktree 의 루트. 커밋·push 는 여기서 돈다. */
-const BUS_WT = REPO ? path.join(REPO, '.axmap', 'bus') : null
+const COMMON = REPO ? path.resolve(REPO, execFileSync('git', ['rev-parse', '--git-common-dir'], {
+  cwd: REPO, encoding: 'utf8', windowsHide: true,
+}).trim()) : null
+const DATA_HOME = COMMON ? (path.basename(COMMON) === '.git' ? path.dirname(COMMON) : REPO) : null
+const BUS_WT = REPO ? path.join(DATA_HOME, '.axmap', 'bus') : null
 const BUS_BRANCH = 'axmap/bus'
 
 /** **쓰는 곳은 하나뿐이다.** */
@@ -273,14 +281,14 @@ const recipientsOf = (m) => String(m.to ?? 'all').split(',').map(norm).filter(Bo
  */
 function me() {
   const v = process.env.AXMAP_AGENT
-  if (v && /^[\w.-]{1,64}$/.test(v)) return v
+  if (v && !agentNameError(v)) return v
   try {
     const n = execFileSync('git', ['config', 'user.name'], {
       cwd: REPO ?? process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
     }).trim()
     // 서버와 달리 여기서는 형식을 본다. 통과 못 하면 아래에서 죽는다 —
     // 못 읽는 이름을 그냥 쓰면 파일 이름과 필터가 조용히 어긋난다.
-    if (n && /^[\w.-]{1,64}$/.test(n)) return n
+    if (n && !agentNameError(n)) return n
   } catch { /* 아래에서 죽는다 */ }
   console.error(
     'AXMAP_AGENT 를 먼저 정하세요 (선점과 같은 값).\n' +
@@ -319,30 +327,14 @@ function roster() {
   if (rosterCache) return rosterCache
   const byEmail = new Map()
 
-  /**
-   * 🔴 **이름 하나는 사람 하나에게만 붙는다. 먼저 붙은 쪽이 이긴다.**
-   *
-   *    이 줄이 없으면 어긋난 쪽지 한 통이 두 사람을 영구히 합친다. 실제로 그랬다 —
-   *    도구 이름은 `alice` 인데 git 이메일이 `bob@x.com` 인 쪽지가 하나 있었고,
-   *    그 뒤로 `alice` 가 bob 의 이름이 됐다. 그러면 bob 은 alice 가 보낸 쪽지를
-   *    **자기가 보낸 것으로 보고 안 읽음에서 지운다.**
-   *
-   *    이름이 어긋나 쪽지가 묻히는 것이 이 판에서 고치려던 바로 그 증상인데,
-   *    신원을 합치는 방식으로 고치면 **자리만 바꿔서 되살아난다.**
-   *
-   *    순서가 곧 우선순위다: git 이력(1) → 쪽지 머리말(2) → 적어 둔 별칭(3).
-   *    git 이력이 가장 믿을 만하다 — 사람이 자기 PC 에 직접 설정한 값이다.
-   */
-  const nameOwner = new Map()
+  // Keep homonyms as separate email identities. Recipient resolution rejects
+  // an ambiguous label instead of silently assigning it to the first author.
   const add = (email, name) => {
     const e = norm(email)
     if (!e || !e.includes('@')) return
     if (!byEmail.has(e)) byEmail.set(e, { email: e, names: new Set() })
     const n = norm(name)
     if (!n) return
-    const owner = nameOwner.get(n)
-    if (owner && owner !== e) return          // 이미 남의 이름이다. 합치지 않는다
-    nameOwner.set(n, e)
     byEmail.get(e).names.add(n)
   }
 
@@ -383,6 +375,7 @@ function roster() {
       const st = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
       const email = f.replace(/\.json$/, '')
       add(email, st.name)
+      if (byEmail.has(norm(email))) byEmail.get(norm(email)).displayName = st.name
       for (const a of (st.aliases ?? [])) add(email, a)
     }
   } catch { /* 사람별 상태가 아직 없다. 1)·2)만으로도 명단은 선다 */ }
@@ -399,8 +392,13 @@ function roster() {
  */
 function addressesOf(who) {
   const w = norm(who)
-  const p = roster().find((x) => x.email === w || x.names.has(w))
-  return p ? new Set([p.email, ...p.names]) : new Set([w])
+  const people = roster()
+  const matches = people.filter((p) => p.email === w || p.names.has(w))
+  if (matches.length !== 1) return new Set([w])
+  const p = matches[0]
+  // A shared label must never make two mailboxes the same person. Known
+  // homonyms can still receive mail through their unambiguous email addresses.
+  return new Set([p.email, ...[...p.names].filter((n) => people.filter((x) => x.names.has(n)).length === 1)])
 }
 
 /**
@@ -466,8 +464,12 @@ function myAddresses() {
   const s = new Set()
   const e = myEmail()
   if (e) for (const a of addressesOf(e)) s.add(a)
-  s.add(norm(me()))
-  if (process.env.AXMAP_AGENT) s.add(norm(process.env.AXMAP_AGENT))
+  const ownName = (name) => {
+    if (roster().filter((p) => p.names.has(norm(name))).length < 2) s.add(norm(name))
+  }
+  ownName(me())
+  if (process.env.AXMAP_AGENT) ownName(process.env.AXMAP_AGENT)
+  try { const p = readProfile(); if (p) ownName(p.name) } catch { /* reported during profile sync */ }
   return s
 }
 
@@ -489,7 +491,7 @@ function myAddresses() {
 const SEEN_FILE = REPO ? path.join(REPO, '.axmap-bus-seen.json') : null
 
 /** 새 자리 — 고아 브랜치 `axmap/users` 의 worktree. 사람마다 파일 하나. */
-const USERS_WT = REPO ? path.join(REPO, '.axmap', 'users') : null
+const USERS_WT = REPO ? path.join(DATA_HOME, '.axmap', 'users') : null
 const USERS_BRANCH = 'axmap/users'
 const usersReady = () => USERS_WT !== null && fs.existsSync(path.join(USERS_WT, '.git'))
 
@@ -528,8 +530,9 @@ function openUsers() {
 /** 이 사람의 파일 자리. **이메일이 정본**이고, 없는 사람만 이름으로 떨어진다. */
 function userKey(who) {
   const w = norm(who)
-  const p = roster().find((x) => x.email === w || x.names.has(w))
-  return p ? p.email : w
+  if (w.includes('@')) return w
+  const matches = roster().filter((x) => x.names.has(w))
+  return matches.length === 1 ? matches[0].email : w
 }
 
 const userFile = (who) => path.join(USERS_WT, 'users', `${userKey(who)}.json`)
@@ -539,19 +542,148 @@ function readUserState(who) {
 }
 
 /** 원격의 사람별 상태를 받아온다. 자주 물을 이유가 없어 느슨하게 맞춘다. */
-function pullUsers() {
-  if (!openUsers()) return
-  const stampFile = path.join(REPO, '.axmap', '.users-lastfetch')
-  // 🔴 60초. 쪽지함(기본 0초)보다 훨씬 느슨한 것은 **늦어도 손해가 없기 때문**이다.
-  //    늦으면 다른 PC 에서 읽은 것이 여기서 한 번 더 뜬다. 그뿐이다.
-  //    반대로 매번 물으면 도구 호출마다 통신이 한 번씩 더 붙는다 (실측 0.8초).
+function usersRemote() {
+  const configured = process.env.AXMAP_REMOTE || gitUsers(['config', '--get', 'axmap.remote'], { cwd: REPO }).out
+  if (configured) return configured
+  const names = gitUsers(['remote'], { cwd: REPO }).out.split('\n').filter(Boolean)
+  if (names.length === 1) return names[0]
+  if (names.includes('origin')) return 'origin'
+  if (names.length) throw new Error('사용자 정보를 공유할 원격이 모호합니다. git config axmap.remote <원격>을 지정하세요.')
+  return null
+}
+
+function mustUsers(args) {
+  const r = gitUsers(args)
+  if (r.code !== 0) throw new Error(r.err || r.out || `git ${args[0]} 실패`)
+  return r.out
+}
+
+function mergeState(local, incoming) {
+  const newest = (incoming.profileUpdatedAt ?? '') > (local.profileUpdatedAt ?? '') ? incoming : local
+  const aliases = [...new Set([...(local.aliases ?? []), ...(incoming.aliases ?? []), local.name, incoming.name].filter(Boolean))]
+  const seen = [local.seen ?? '', incoming.seen ?? ''].sort().at(-1)
+  return { ...incoming, ...local, ...newest, aliases: aliases.filter((a) => a !== newest.name), ...(seen ? { seen } : {}) }
+}
+
+// Never reset away unpublished profiles or read receipts. A rejected push is
+// retried on the latest branch, merging only the dedicated JSON user records.
+function syncUsers(remote) {
+  if (!remote) return
+  const exists = gitUsers(['ls-remote', '--exit-code', remote, `refs/heads/${USERS_BRANCH}`])
+  if (exists.code === 2) return
+  if (exists.code !== 0) throw new Error(exists.err || '사용자 정보 원격을 확인하지 못했습니다.')
+  mustUsers(['fetch', '--quiet', remote, USERS_BRANCH])
+  if (gitUsers(['merge', '--ff-only', '--quiet', 'FETCH_HEAD']).code === 0) return
+  const merged = gitUsers(['merge', '--no-commit', '--no-ff', '--allow-unrelated-histories', 'FETCH_HEAD'])
+  const conflicts = mustUsers(['diff', '--name-only', '--diff-filter=U']).split('\n').filter(Boolean)
   try {
-    if (Date.now() - fs.statSync(stampFile).mtimeMs < 60_000) return
-  } catch { /* 처음이다. 받아온다 */ }
-  const remote = gitUsers(['config', '--get', 'axmap.remote'], { cwd: REPO }).out || 'origin'
-  if (gitUsers(['fetch', '--quiet', remote, USERS_BRANCH]).code !== 0) return
-  gitUsers(['reset', '--hard', '--quiet', 'FETCH_HEAD'])
-  try { fs.writeFileSync(stampFile, '') } catch { /* 스탬프 실패는 치명적이지 않다 */ }
+    for (const f of conflicts) {
+      if (!/^users\/[^/]+\.json$/.test(f)) throw new Error(`사용자 정보 충돌을 자동으로 풀 수 없습니다: ${f}`)
+      const local = JSON.parse(mustUsers(['show', `:2:${f}`]))
+      const incoming = JSON.parse(mustUsers(['show', `:3:${f}`]))
+      fs.writeFileSync(path.join(USERS_WT, f), JSON.stringify(mergeState(local, incoming), null, 2) + '\n')
+      mustUsers(['add', '--', f])
+    }
+    if (merged.code !== 0 && !conflicts.length) throw new Error(merged.err || merged.out)
+    mustUsers(['commit', '--quiet', '--no-verify', '-m', 'axmap: merge user profiles'])
+  } catch (e) {
+    gitUsers(['merge', '--abort'])
+    throw e
+  }
+}
+
+function withUsers(action) {
+  if (!COMMON) return false
+  return withRepoLock(path.join(COMMON, 'axmap-users.lock'), () => {
+    if (!openUsers()) throw new Error('사용자 정보 브랜치를 준비하지 못했습니다.')
+    return action()
+  })
+}
+
+function pullUsers() {
+  if (!REPO) return
+  const stampFile = path.join(DATA_HOME, '.axmap', '.users-lastfetch')
+  try { if (Date.now() - fs.statSync(stampFile).mtimeMs < 60_000) return } catch { /* first sync */ }
+  try {
+    withUsers(() => {
+      // A fresh local-only orphan still has its seed files unstaged.
+      if (gitUsers(['status', '--porcelain']).out) {
+        mustUsers(['add', '-A'])
+        mustUsers(['commit', '--quiet', '--no-verify', '-m', 'axmap: preserve user state'])
+      }
+      syncUsers(usersRemote())
+      fs.writeFileSync(stampFile, '')
+    })
+  } catch { /* Read receipts remain conservative when synchronization fails. */ }
+}
+
+function updateUser(email, change) {
+  if (emailError(email)) throw new Error(emailError(email))
+  return withUsers(() => {
+    const remote = usersRemote()
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (gitUsers(['status', '--porcelain']).out) {
+        mustUsers(['add', '-A'])
+        mustUsers(['commit', '--quiet', '--no-verify', '-m', 'axmap: preserve user state'])
+      }
+      syncUsers(remote)
+      const f = path.join(USERS_WT, 'users', `${email}.json`)
+      let cur = {}
+      try { cur = JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { if (e.code !== 'ENOENT') throw e }
+      const next = change(cur)
+      if (JSON.stringify(cur) !== JSON.stringify(next)) {
+        fs.mkdirSync(path.dirname(f), { recursive: true })
+        fs.writeFileSync(f, JSON.stringify(next, null, 2) + '\n')
+        mustUsers(['add', '--', `users/${email}.json`])
+        mustUsers(['commit', '--quiet', '--no-verify', '-m', `user: ${email}`])
+      }
+      if (!remote) return 'local'
+      const pushed = gitUsers(['push', '--quiet', remote, `HEAD:refs/heads/${USERS_BRANCH}`])
+      if (pushed.code === 0) {
+        fs.writeFileSync(path.join(DATA_HOME, '.axmap', '.users-lastfetch'), '')
+        return 'shared'
+      }
+      if (attempt === 4) throw new Error(pushed.err || '사용자 정보 push 실패')
+    }
+  })
+}
+
+function publishProfile() {
+  const profile = readProfile()
+  if (!profile || !REPO) return null
+  const email = myEmail()
+  if (emailError(email)) throw new Error(emailError(email))
+  // Successful unchanged profiles need no network more than once a minute.
+  const stamp = path.join(DATA_HOME, '.axmap', '.profile-shared.json')
+  const revision = profile.updatedAt || fs.statSync(profilePath()).mtime.toISOString()
+  const key = JSON.stringify([profile.name, revision, email, me(), usersRemote()])
+  try {
+    const last = JSON.parse(fs.readFileSync(stamp, 'utf8'))
+    if (last.key === key && Date.now() - last.at < 60_000) return last.result
+  } catch { /* first use / changed identity */ }
+  const result = updateUser(email, (cur) => {
+    // An older PC must not undo a name correction made on another PC just
+    // because it became active later. Revision belongs to setup, not to use.
+    const name = (cur.profileUpdatedAt ?? '') > revision ? cur.name : profile.name
+    const aliases = [...new Set([...(cur.aliases ?? []), cur.name, profile.name, me()].filter((n) => n && n !== name))]
+    return { ...cur, name, aliases,
+      profileUpdatedAt: (cur.profileUpdatedAt ?? '') > revision ? cur.profileUpdatedAt : revision }
+  })
+  rosterCache = null
+  fs.writeFileSync(stamp, JSON.stringify({ key, at: Date.now(), result }) + '\n')
+  if (result === 'local') console.error('※ 쪽지 프로필을 로컬에만 저장했습니다 — 원격이 없어 다른 팀원에게는 아직 보이지 않습니다.')
+  return result
+}
+
+function messageName() {
+  const profile = readProfile()
+  if (!profile) return me()
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(USERS_WT, 'users', `${myEmail()}.json`), 'utf8'))
+    const revision = profile.updatedAt || fs.statSync(profilePath()).mtime.toISOString()
+    if ((state.profileUpdatedAt ?? '') > revision && state.name) return state.name
+  } catch { /* unpublished profile / custom standalone mailbox */ }
+  return profile.name
 }
 
 function readSeen(who) {
@@ -564,7 +696,12 @@ function readSeen(who) {
   //    그건 이 도구가 고치려던 바로 그 상태다.
   let legacy = ''
   if (SEEN_FILE) {
-    try { legacy = JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'))[who] ?? '' } catch { /* 없다 */ }
+    try {
+      const known = addressesOf(who)
+      for (const [name, id] of Object.entries(JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8')))) {
+        if (known.has(norm(name)) && id > legacy) legacy = id
+      }
+    } catch { /* no legacy receipts */ }
   }
   return fromBranch > legacy ? fromBranch : legacy
 }
@@ -592,42 +729,15 @@ function markSeen(who, id) {
     } catch { /* 조용히 */ }
   }
 
-  if (!openUsers()) return
+  const email = myEmail() || userKey(who)
   try {
-    const f = userFile(who)
-    const cur = readUserState(who)
-    if ((cur.seen ?? '') >= id) return          // 뒤로 가지 않는다
-    fs.mkdirSync(path.dirname(f), { recursive: true })
-
-    // 🔴 **별칭은 저절로 적힌다.** 손으로 관리하게 하면 아무도 안 한다.
-    //
-    //    지금 쓰고 있는 이름이 이메일도 아니고 git 이 아는 이름도 아니면, 그것은
-    //    이 사람이 띄운 도구의 이름이다 (codex-jinmiri · jaehyeon-2 처럼). 적어
-    //    두면 다음부터 그 이름으로 온 쪽지도 이 사람 것이 된다.
-    const known = addressesOf(who)
-    const now = norm(me())
-    const aliases = [...new Set([...(cur.aliases ?? []), ...(known.has(now) ? [] : [now])])]
-
-    // 이름도 같이 남긴다 — 파일 이름이 이메일이라 사람이 열었을 때 누구인지 보이게.
-    fs.writeFileSync(f, JSON.stringify({ ...cur, name: me(), aliases, seen: id }, null, 2) + '\n')
-
-    gitUsers(['add', '--', path.relative(USERS_WT, f).replace(/\\/g, '/')])
-    // --no-verify: 연결된 worktree 는 훅을 공유한다. 이 브랜치는 사용자 코드가 아니다.
-    gitUsers(['commit', '--quiet', '--no-verify', '-m', `seen: ${userKey(who)}`])
-
-    // 🔴 push 는 **60초에 한 번**만 시도한다. 커밋은 이 PC 안이라 싸지만 push 는
-    //    통신이고, 쪽지를 볼 때마다 붙으면 모든 도구 호출이 그만큼 느려진다.
-    //    늦게 가도 손해가 없다 — 다른 PC 에서 그 쪽지가 한 번 더 뜰 뿐이다.
-    const stamp = path.join(REPO, '.axmap', '.users-lastpush')
-    let due = true
-    try { due = Date.now() - fs.statSync(stamp).mtimeMs >= 60_000 } catch { /* 처음이다 */ }
-    if (due) {
-      const remote = gitUsers(['config', '--get', 'axmap.remote'], { cwd: REPO }).out || 'origin'
-      if (gitUsers(['push', '--quiet', remote, `HEAD:${USERS_BRANCH}`]).code === 0) {
-        try { fs.writeFileSync(stamp, '') } catch { /* 스탬프 실패는 치명적이지 않다 */ }
-      }
-    }
-  } catch { /* 조용히 — 못 찍으면 다음에 한 번 더 뜰 뿐이다 */ }
+    updateUser(email, (cur) => {
+      const profile = readProfile()
+      const name = profile ? messageName() : (cur.name || me())
+      const aliases = [...new Set([...(cur.aliases ?? []), me()].filter((n) => n !== name))]
+      return { ...cur, name, aliases, seen: (cur.seen ?? '') > id ? cur.seen : id }
+    })
+  } catch { /* Failed read receipts cause a repeat, never a hidden message. */ }
 }
 
 const stamp = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
@@ -734,7 +844,7 @@ function stdin() {
 }
 
 function post({ to, subject, body, replyTo = null }) {
-  const from = me()
+  const from = messageName()
   // 부르는 쪽이 하나를 주든 여럿을 주든 여기서는 목록 하나로 본다.
   let tos = (Array.isArray(to) ? to : (to == null ? [] : [to])).map((s) => String(s).trim()).filter(Boolean)
 
@@ -761,14 +871,16 @@ function post({ to, subject, body, replyTo = null }) {
   //    나중에 `ensureBus` 가 "정상적인 쪽지함이 아닙니다 — 지운 뒤 다시 하세요"
   //    라고 안내한다. **안 간 쪽지를 지우라고 시키는 것**이다. 여기서 멈추면
   //    사람은 init 한 번 하고 다시 보내면 된다 — 잃는 것이 없다.
-  if (!process.env.AXMAP_BUS_DIR && !busReady()) {
-    console.error(
-      '쪽지함이 아직 없습니다. 한 번만 준비하면 됩니다:\n' +
-        '  axmap init            (MCP 에서는 ax_init)\n\n' +
-        '준비 전에 쪽지를 쓰지 않습니다 — 여기 남으면 아무에게도 안 가고,\n' +
-        '나중에 쪽지함을 만들 때 지워야 할 것으로 보입니다.',
-    )
+  if (!openBus()) {
+    reportBusProblem()
     process.exit(1)
+  }
+  for (const one of tos) {
+    const matches = roster().filter((p) => p.email === norm(one) || p.names.has(norm(one)))
+    if (norm(one) !== 'all' && !norm(one).includes('@') && matches.length > 1) {
+      console.error(`같은 이름의 수신자가 여러 명입니다: ${one}\n이메일로 지정하세요: ${matches.map((p) => p.email).join(', ')}`)
+      process.exit(1)
+    }
   }
   // 🔴 **모르는 주소로는 안 보낸다.**
   //
@@ -785,7 +897,7 @@ function post({ to, subject, body, replyTo = null }) {
     if (norm(one) === 'all') continue
     const known = roster().some((p) => p.email === norm(one) || p.names.has(norm(one)))
     if (!known) {
-      const near = nearMatches(one)
+      const near = norm(one).includes('@') ? [] : nearMatches(one)
       if (near.length) {
         // 🔴 **거부하는 것은 오타뿐이다.** 아는 이름과 한 글자 차이거나 그 이름의
         //    앞부분이면 새 사람이 아니라 손이 미끄러진 것이다. 실측에서 실제로
@@ -806,9 +918,15 @@ function post({ to, subject, body, replyTo = null }) {
     }
   }
 
+  // Resolve labels now: later profile corrections cannot redirect an old note.
+  tos = [...new Set(tos.map((one) => {
+    if (norm(one) === 'all') return 'all'
+    const matches = roster().filter((p) => p.email === norm(one) || p.names.has(norm(one)))
+    return matches.length === 1 ? matches[0].email : one
+  }))]
   fs.mkdirSync(BOX, { recursive: true })
   const now = new Date()
-  const id = `${stamp(now)}-${from}-${slug(subject)}`
+  const id = `${stamp(now)}-${from}-${slug(subject)}-${randomUUID().slice(0, 8)}`
   // 🔴 `from` 은 **이름 그대로** 둔다. 파일 이름에 들어가는 값이라 바꾸면 예전
   //    쪽지와 형식이 갈린다. 대신 이메일을 한 줄 더 적는다 — 이름이 나중에
   //    바뀌어도 **누구였는지는 남는다.** 이것이 명단을 세우는 재료가 된다.
@@ -918,7 +1036,7 @@ function selfCmd() {
 function list() {
   pull()
   const all = readAll()
-  const to = has('--mine') ? me() : flag('--to')
+  const to = has('--mine') ? (myEmail() || me()) : flag('--to')
   const from = flag('--from')
 
   // 🔴 **한 사람에게는 주소가 여럿이다.** `--to yeaseung-lee` 로 물어도
@@ -958,7 +1076,7 @@ function list() {
     //    **내 안 읽은 쪽지로 다시 잡힌다.** 주소 전부와 견준다.
     const mine = has('--mine') ? myAddresses() : addressesOf(who)
     rows = rows.filter((m) => m.id > seen
-      && !mine.has(norm(m.from)) && !(m.fromEmail && mine.has(norm(m.fromEmail))))
+      && !(m.fromEmail ? mine.has(norm(m.fromEmail)) : mine.has(norm(m.from))))
   }
 
   // 🔴 **못 읽었으면 "없음" 이라고 답하지 않는다.** 이 세 줄이 이 파일에서 제일
@@ -1054,11 +1172,25 @@ function seen() {
     console.error(`찍을 쪽지 id 를 주세요.  예:  ${selfCmd()} seen <아이디> [<아이디>…]`)
     process.exit(1)
   }
-  markSeen(has('--mine') ? me() : (flag('--to') || me()),
+  markSeen(has('--mine') ? (myEmail() || me()) : (flag('--to') || me()),
     ids.reduce((hi, id) => (id > hi ? id : hi), ''))
 }
 
+let profileResult = null
+if (['profile', 'contacts', 'post', 'reply', 'list', 'read'].includes(cmd)) {
+  try { profileResult = publishProfile() } catch (e) {
+    console.error(`경고: 쪽지 프로필을 공유하지 못했습니다 — ${e.message}`)
+    if (cmd === 'profile') process.exit(1)
+  }
+}
+
 switch (cmd) {
+  case 'profile':
+    if (profileResult) console.log(`쪽지 프로필: ${profileResult}`)
+    break
+  case 'contacts':
+    for (const p of roster()) console.log(`${p.displayName || [...p.names][0] || p.email}\t${p.email}`)
+    break
   case 'post': post({ to: recipientArgs(), subject: flag('--subject'), body: stdin() }); break
   case 'reply': {
     const target = args[1]
@@ -1068,7 +1200,7 @@ switch (cmd) {
     const src = readAll().find((x) => x.id === target || x.id.includes(target))
     if (!src && busProblem) { reportBusProblem(); process.exit(1) }
     if (!src) { console.error(`없는 쪽지: ${target}`); process.exit(1) }
-    post({ to: src.from, subject: flag('--subject') ?? `Re: ${src.subject}`, body: stdin(), replyTo: src.id })
+    post({ to: src.fromEmail || src.from, subject: flag('--subject') ?? `Re: ${src.subject}`, body: stdin(), replyTo: src.id })
     break
   }
   case 'list': list(); break
@@ -1087,6 +1219,7 @@ switch (cmd) {
   ${selfCmd()} seen <아이디> [<아이디>…]   보여준 쪽지만 읽음으로 찍는다
   ${selfCmd()} reply <아이디> < 본문.md
   ${selfCmd()} who          지금 누가 무엇을 잡고 있나
+  ${selfCmd()} contacts     이 저장소의 쪽지 수신자 이름·이메일
 
 목록을 잘라서 보여주는 쪽은 --no-mark 로 읽기만 하고, 자기가 그린 아이디만
 seen 에 넘기세요. 안 그러면 화면에 뜬 적 없는 쪽지가 읽음이 되어 안 보입니다.

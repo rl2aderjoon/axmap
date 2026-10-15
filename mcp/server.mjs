@@ -45,6 +45,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import { syncConfiguredProfile } from '../src/identity.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -311,7 +312,7 @@ function unreadBanner(tool, text) {
   //    떼는 순간 여기가 조용히 낡는다 — 목록은 언제나 코드보다 먼저 낡는다.
   if (text.includes('안 읽은 쪽지')) return ''
 
-  const r = bus(['list', '--to', AGENT, '--unread', '--no-mark',
+  const r = bus(['list', '--mine', '--unread', '--no-mark',
     '--throttle', String(BUS_POLL), '--quiet-if-empty'])
   if (r.code !== 0) return ''
   const rows = busRows(r.out)
@@ -331,7 +332,7 @@ function unreadBanner(tool, text) {
 
   // 🔴 배너를 다 만든 뒤에 찍는다. 위에서 죽으면 안 찍혀야 다음에 다시 뜬다.
   const ids = shown.map((s) => s.id).filter(Boolean)
-  if (ids.length) bus(['seen', '--to', AGENT, ...ids])
+  if (ids.length) bus(['seen', '--mine', ...ids])
   return banner
 }
 
@@ -358,7 +359,7 @@ function cli(args) {
     cwd: REPO,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, AXMAP_AGENT: AGENT, AXMAP_ACTOR: ACTOR, AXMAP_SESSION: SESSION },
+    env: { ...process.env, AXMAP_AGENT: AGENT, AXMAP_ACTOR: ACTOR, AXMAP_SESSION: SESSION, AXMAP_SKIP_PROFILE_SYNC: '1' },
   })
   const stdout = (r.stdout ?? '').trim()
   const stderr = (r.stderr ?? '').trim()
@@ -737,7 +738,7 @@ function releaseAllIn(dir) {
     cwd: dir,
     encoding: 'utf8',
     windowsHide: true,
-    env: { ...process.env, AXMAP_AGENT: AGENT, AXMAP_ACTOR: ACTOR, AXMAP_SESSION: SESSION },
+    env: { ...process.env, AXMAP_AGENT: AGENT, AXMAP_ACTOR: ACTOR, AXMAP_SESSION: SESSION, AXMAP_SKIP_PROFILE_SYNC: '1' },
   })
   return {
     code: r.status ?? 1,
@@ -859,7 +860,7 @@ function dispatch(name, args = {}) {
       //    겹치지만 `markSeen` 은 뒤로 가지 않으므로 결과가 같다.
       //
       //    전부 보려면 `all: true` 가 이미 있다 — 그쪽은 거르지도 찍지도 않는다.
-      const a = args.id ? ['read', String(args.id)] : ['list', ...(args.all ? ['--all'] : ['--to', AGENT, '--unread'])]
+      const a = args.id ? ['read', String(args.id)] : ['list', ...(args.all ? ['--all'] : ['--mine', '--unread'])]
       const r = bus(a)
 
       // 🔴 여기도 **낸 것만 찍는다.** 목록을 자르지 않으므로 낸 것 전부다.
@@ -870,7 +871,7 @@ function dispatch(name, args = {}) {
       //    id 로 찍으면 **나에게 온 안 읽은 쪽지가 화면에 뜬 적 없이 묻힌다.**
       if (r.code === 0 && !args.id && !args.all) {
         const ids = busRows(r.out).map((s) => s.id).filter(Boolean)
-        if (ids.length) bus(['seen', '--to', AGENT, ...ids])
+        if (ids.length) bus(['seen', '--mine', ...ids])
       }
       return {
         ok: r.code === 0,
@@ -1007,7 +1008,8 @@ async function handle(req) {
       do { task = rootsTask; await task } while (task !== rootsTask)
     }
     const r = callTool(params?.name, params?.arguments ?? {})
-    return { content: [{ type: 'text', text: r.text + (r.ok ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
+    const warning = r.ok ? syncConfiguredProfile(REPO, BUS, { ...process.env, AXMAP_AGENT: AGENT }) : ''
+    return { content: [{ type: 'text', text: r.text + (warning ? '\n' + warning : '') + (r.ok ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
   }
   if (method === 'ping') return {}
   return null // 알림이거나 지원하지 않는 메서드

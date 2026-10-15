@@ -11,7 +11,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createInterface } from 'node:readline/promises'
 
+import { displayNameError, readProfile, writeProfile, profilePath } from '../src/identity.mjs'
 import { agentNameError } from '../src/protocol.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -58,7 +60,7 @@ axmap setup — 어느 폴더에서든 이 PC에 axMap을 전역 설치·등록�
   --repo <경로>        선택 사항: 이 저장소의 장부·커밋 훅도 명시적으로 준비한다
   --remote <이름|URL>  장부를 둘 원격. git 주소를 주면, 그 주소를 가리키는 원격이
                        없을 때 'axmap' 이라는 이름으로 하나 더한다
-  --name <이름>        내 이름 (기본: 전역 git config user.name, 명시적 repo는 로컬 값)
+  --name <이름>        쪽지 표시 이름을 저장한다 (대화형 실행에서는 직접 입력)
   --dest <경로>        프로그램을 둘 자리 (기본: ~/.axmap/app)
   --commands <곳>      슬래시 명령을 둘 자리: global(기본) · project · none
   --hook               프롬프트마다 쪽지를 받는 하네스 훅을 settings.json 에 더한다
@@ -113,12 +115,14 @@ if (projectRequested) {
 }
 
 // ── 3. 이름 ─────────────────────────────────────────────────────────────────
-//
-// [!] 모두에게 같은 기본값을 주면 안 된다. 장부에 한 명만 존재하게 되고, 겹침
-//     판정은 자기 claim 을 겹침으로 보지 않으므로 팀 전원이 서로의 영역을 아무
-//     경고 없이 덮어쓴다. 그래서 이 PC 에서 이미 사람마다 다른 값만 후보로 쓴다.
+// Display labels are independent of claim ownership. The saved label is the
+// default on upgrades; a first setup starts from this person's Git identity.
 let name = flag('--name')
 let nameFrom = '--name'
+if (has('--name') && !name) die('--name 뒤에 표시 이름을 지정하세요.')
+let saved
+try { saved = readProfile() } catch (e) { die(e.message) }
+if (!name && saved) { name = saved.name; nameFrom = '저장된 표시 이름' }
 if (!name) {
   const g = git(REPO ? ['config', 'user.name'] : ['config', '--global', 'user.name'], REPO ?? os.homedir())
   if (g.code === 0 && g.out) { name = g.out; nameFrom = REPO ? 'git config user.name' : 'git config --global user.name' }
@@ -129,10 +133,36 @@ if (!name) {
 if (!name) { name = os.hostname(); nameFrom = '호스트 이름' }
 if (!name) die('이 PC 에서 쓸 이름을 정하지 못했습니다. --name "홍길동" 으로 직접 주세요.')
 
+if (!has('--name') && !DRY && process.stdin.isTTY && process.stdout.isTTY) {
+  const input = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    for (;;) {
+      const answer = (await input.question(`쪽지에 표시할 이름 [${name}]: `)).trim().normalize('NFC')
+      const candidate = answer || name
+      const error = displayNameError(candidate)
+      if (error) { say(error); continue }
+      name = candidate
+      nameFrom = '표시 이름 입력'
+      break
+    }
+  } finally { input.close() }
+}
+
 // 검사기를 다시 짜지 않는다. 여기서 통과시킨 이름을 서버가 거부하면 설치가 거짓말이 된다.
-const nameErr = agentNameError(String(name))
-if (nameErr) die(`이 이름은 장부에서 쓸 수 없습니다: ${name}\n\n${nameErr}`)
-ok('내 이름', `${name}  (${nameFrom})`)
+const nameErr = displayNameError(name)
+if (nameErr) die(`이 표시 이름은 쓸 수 없습니다: ${name}\n\n${nameErr}`)
+if (!DRY) {
+  try { writeProfile(name) } catch (e) { die(e.message) }
+}
+ok('쪽지 이름', `${name}  (${nameFrom}${DRY ? ', 저장 예정' : ''})`)
+const email = git(REPO ? ['config', 'user.email'] : ['config', '--global', 'user.email'], REPO ?? os.homedir()).out
+if (email) ok('Git 이메일', `${email} — 실제 쪽지 주소는 작업 repo의 Git 설정을 사용합니다`)
+else hm('Git 이메일', '작업 repo의 git config user.email을 사용합니다. 이메일은 별도로 저장하지 않습니다.')
+say(`         이름 변경: axmap setup --name "새 이름"  (${profilePath()})`)
+// Changing a message label must not change ownership of existing claims.
+const agentIdentity = git(REPO ? ['config', 'user.name'] : ['config', '--global', 'user.name'], REPO ?? os.homedir()).out
+  || (() => { try { return os.userInfo().username } catch { return os.hostname() } })()
+if (agentNameError(agentIdentity)) die('Git 사용자 이름을 선점 이름으로 쓸 수 없습니다. git config user.name을 확인하세요.')
 
 // ── 4. 장부를 둘 원격 ───────────────────────────────────────────────────────
 //
@@ -211,8 +241,8 @@ function installAndRegister() {
 
   say('')
   const r = win
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Source', SOURCE_ROOT, '-Dest', DEST, '-Name', name], { cwd: os.homedir(), stdio: 'inherit', windowsHide: true })
-    : spawnSync('bash', [script, '--source', SOURCE_ROOT, '--dest', DEST, '--name', name], { cwd: os.homedir(), stdio: 'inherit' })
+    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Source', SOURCE_ROOT, '-Dest', DEST, '-Name', agentIdentity], { cwd: os.homedir(), stdio: 'inherit', windowsHide: true })
+    : spawnSync('bash', [script, '--source', SOURCE_ROOT, '--dest', DEST, '--name', agentIdentity], { cwd: os.homedir(), stdio: 'inherit' })
   say('')
 
   if (r.status === 0) ok('설치·등록', DEST)
@@ -241,7 +271,7 @@ function ledgerAndHook() {
     stdio: 'inherit',
     // 이름을 넘겨서 판정을 한 번으로 못 박는다. 여기서 통과한 이름과 나중에 CLI 가
     // 스스로 고르는 이름이 다르면, 자기가 잡은 것을 자기가 반납하지 못한다.
-    env: { ...process.env, AXMAP_AGENT: name },
+    env: { ...process.env, AXMAP_AGENT: agentIdentity },
     windowsHide: true,
   })
 

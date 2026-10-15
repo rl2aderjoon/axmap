@@ -24,6 +24,12 @@ axmap setup
 Restart your AI tool after setup to use MCP.
 People and agents working together must share the same remote ledger to see each other's claims.
 
+During interactive setup, enter the name people should use for messages, such as `John Smith` or `장효준`. To set or correct it without a prompt, run `axmap setup --name "John Smith"`. Reinstallation keeps the saved name. Git's name and email settings are unchanged.
+
+On first use in a repository, axMap reads that repository's Git email and shares your display name through the existing `axmap/users` branch. No code commit or per-repository manual registration is needed. Teammates discover it when their user information synchronizes. This requires push access; an offline or rejected update is reported and retried. Setup alone does not announce you to repositories you have never used.
+
+Use `axmap bus contacts` to list known names and email addresses. Messages sent to a known name are addressed to its email, so correcting the name preserves delivery and read history. If multiple people use the same name, specify the recipient's email. Messaging registration does not grant voting or MR approval rights.
+
 See [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) for installation and configuration details (Korean).
 
 ## Global setup and automatic repositories in 1.3.1
