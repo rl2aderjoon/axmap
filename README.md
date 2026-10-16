@@ -32,6 +32,10 @@ Use `axmap bus contacts` to list known names and email addresses. Messages sent 
 
 See [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) for installation and configuration details (Korean).
 
+## 1.3.3: Windows Codex registration fix
+
+`axmap setup` now registers Codex correctly when Codex is installed through npm on Windows. It launches the package's Node entry directly, preserving paths and arguments without a shell.
+
 ## Global setup and automatic repositories in 1.3.1
 
 Set up axMap once, then open Codex or another AI CLI in any Git repository. axMap selects that session's repository and prepares its ledger on the first status or claim request. There is no per-repository `axmap init` step.

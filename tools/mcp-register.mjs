@@ -266,8 +266,27 @@ function snippetJson() {
 // 🔴 TOML 을 직접 파싱하지 않는다. 파서를 새로 짜는 것은 이 저장소의 "의존성 없음" 과
 //    "판정을 복잡하게 만들지 않는다" 에 둘 다 어긋나고, 어설픈 파서가 남의 config.toml 을
 //    깨뜨리는 것이 이 작업에서 나올 수 있는 최악의 결과다. 쓰는 일은 codex 자신에게 맡긴다.
+// Windows npm installs expose a shell script and .cmd shim, neither of which
+// spawnSync can execute directly. Launch the package's declared Node entry
+// without a shell so paths and environment values keep their exact contents.
+export function codexInvocation(bin, platform = process.platform) {
+  if (platform === 'win32' && !/\.exe$/i.test(bin)) {
+    const packageDir = path.join(path.dirname(bin), 'node_modules', '@openai', 'codex')
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'))
+      const entry = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.codex
+      if (entry) {
+        const script = path.resolve(packageDir, entry)
+        if (fs.statSync(script).isFile()) return [process.execPath, script]
+      }
+    } catch { /* Non-npm installations continue to use their original binary. */ }
+  }
+  return [bin]
+}
+
 export function doCodex(bin, { run: injectedRun, dry = DRY } = {}) {
-  const run = injectedRun ?? ((args) => spawnSync(bin, args, { cwd: os.homedir(), encoding: 'utf8', windowsHide: true }))
+  const [command, ...prefix] = codexInvocation(bin)
+  const run = injectedRun ?? ((args) => spawnSync(command, [...prefix, ...args], { cwd: os.homedir(), encoding: 'utf8', windowsHide: true }))
 
   const help = run(['mcp', '--help'])
   if (help.status !== 0 || !/\badd\b/.test(`${help.stdout}${help.stderr}`)) {

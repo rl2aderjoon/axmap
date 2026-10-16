@@ -1,6 +1,36 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { doCodex } from '../tools/mcp-register.mjs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { codexInvocation, doCodex } from '../tools/mcp-register.mjs'
+
+test('Windows npm Codex shims use the package entry without shell interpretation', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap codex & shim-'))
+  t.after(() => {
+    assert.equal(path.dirname(dir), os.tmpdir())
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+  const packageDir = path.join(dir, 'node_modules', '@openai', 'codex')
+  fs.mkdirSync(path.join(packageDir, 'bin'), { recursive: true })
+  fs.writeFileSync(path.join(packageDir, 'package.json'), JSON.stringify({ bin: { codex: 'bin/codex.js' } }))
+  const script = path.join(packageDir, 'bin', 'codex.js')
+  fs.writeFileSync(script, 'console.log(JSON.stringify(process.argv.slice(2)))')
+  for (const name of ['codex', 'codex.cmd', 'codex.ps1']) {
+    const invocation = codexInvocation(path.join(dir, name), 'win32')
+    assert.deepEqual(invocation, [process.execPath, script])
+    const args = ['mcp', 'add', 'axmap', '--env', 'CUSTOM=value & with spaces', '--', 'node', 'C:\\a b\\server.mjs']
+    const r = spawnSync(invocation[0], [...invocation.slice(1), ...args], { encoding: 'utf8', windowsHide: true })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout), args)
+  }
+  const native = path.join(dir, 'codex.exe')
+  assert.deepEqual(codexInvocation(native, 'win32'), [native])
+  assert.deepEqual(codexInvocation('/usr/bin/codex', 'linux'), ['/usr/bin/codex'])
+  const missing = path.join(dir, 'other', 'codex.cmd')
+  assert.deepEqual(codexInvocation(missing, 'win32'), [missing])
+})
 
 function client(initial = [], broken = false) {
   let servers = structuredClone(initial)
