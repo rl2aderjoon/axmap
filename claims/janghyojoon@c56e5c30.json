@@ -1,0 +1,27 @@
+{
+  "agent": "janghyojoon",
+  "task": "cli-cleanup-changelog",
+  "intent": "코드 시각화·데스크톱·코퍼스 잔재 제거, CLI 공용 코드 분리와 README 버전별 변경 이력 개편",
+  "actor": "agent",
+  "session": "mcp-428",
+  "since": "2026-10-18T09:40:09.251Z",
+  "ttlMs": 2700000,
+  "paths": [
+    ".gitignore",
+    "CLAUDE.md",
+    "README.ko.md",
+    "README.md",
+    "app",
+    "bin/axmap.mjs",
+    "corpus",
+    "corpus-data",
+    "desktop",
+    "docs",
+    "mcp",
+    "package-lock.json",
+    "package.json",
+    "src",
+    "test",
+    "tools"
+  ]
+}
