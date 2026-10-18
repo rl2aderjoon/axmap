@@ -1,10 +1,10 @@
 {
   "agent": "janghyojoon",
   "task": "cli-cleanup-changelog",
-  "intent": "코드 시각화·데스크톱·코퍼스 잔재 제거, CLI 공용 코드 분리와 README 버전별 변경 이력 개편",
+  "intent": "협업 데모에서 제거된 시각화 실행 안내 정리",
   "actor": "agent",
   "session": "mcp-428",
-  "since": "2026-10-18T09:40:09.251Z",
+  "since": "2026-10-18T09:46:42.349Z",
   "ttlMs": 2700000,
   "paths": [
     ".gitignore",
@@ -15,6 +15,7 @@
     "bin/axmap.mjs",
     "corpus",
     "corpus-data",
+    "demo/collab.sh",
     "desktop",
     "docs",
     "mcp",
