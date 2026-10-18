@@ -1,15 +1,19 @@
 {
   "agent": "janghyojoon",
   "task": "local-session-bridge",
-  "intent": "npm에 동봉되는 PTY로 사용자가 여는 AI CLI를 유지하고 같은 세션에 요청을 전달하는 연결 구현",
+  "intent": "설치에 터미널 의존성을 동봉하고 수동 연결 없는 axMap 실행 흐름과 검증을 반영",
   "actor": "agent",
   "session": "mcp-428",
-  "since": "2026-10-18T03:03:54.665Z",
+  "since": "2026-10-18T03:05:05.859Z",
   "ttlMs": 2700000,
   "paths": [
+    "README.ko.md",
+    "README.md",
     "bin/axmap.mjs",
     "docs/DECISIONS.md",
     "docs/SESSION-BRIDGE.md",
+    "mcp/install.ps1",
+    "mcp/install.sh",
     "mcp/server.mjs",
     "package-lock.json",
     "package.json",
@@ -17,8 +21,10 @@
     "src/terminal-bridge.mjs",
     "test/bridge.test.mjs",
     "test/mcp-bridge.test.mjs",
+    "test/setup.test.mjs",
     "test/terminal-bridge.test.mjs",
     "tools/bridge.mjs",
-    "tools/run.mjs"
+    "tools/run.mjs",
+    "tools/setup.mjs"
   ]
 }
