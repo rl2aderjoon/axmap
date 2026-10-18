@@ -2622,6 +2622,8 @@ exec node "$AX" verify
  * 두 군데 적으면 한 쪽만 고쳐지는 날이 온다.
  */
 const RUNNERS = {
+  run: ['tools/run.mjs', '사용자가 여는 AI CLI를 연결한다'],
+  bridge: ['tools/bridge.mjs', '열린 로컬 AI 세션에 작업을 전달한다'],
   gate: ['governance/gate.mjs', '이 MR 이 정족수를 채웠는가'],
   vote: ['governance/vote.mjs', '표를 던진다'],
   bus: ['tools/bus.mjs', '에이전트 사이 쪽지함'],
@@ -2831,6 +2833,8 @@ const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
   axmap gate                         이 MR 이 정족수를 채웠는가 (CI 가 부른다)
   axmap vote                         표를 던진다
   axmap bus                          에이전트 사이 쪽지함 (post · list · read · reply)
+  axmap bridge                       열린 로컬 AI 세션 연결 (install · sessions · send · result)
+  axmap run agy [인수...]             연결된 Antigravity CLI를 직접 연다
   axmap mr-target                    이 브랜치가 저 브랜치로 갈 수 있는가
   axmap version                      브랜치 단계로 다음 버전을 정한다
   axmap promote                      한 단계 위로 올리는 MR 을 만든다
@@ -2871,6 +2875,8 @@ if (boolFlag(flags.version, 'version') && !cmd) {
 switch (cmd) {
   // 이름을 경로로 바꿔 주는 것들 (RUNNERS). 인자는 손대지 않고 그대로 간다.
   case 'setup':
+  case 'bridge':
+  case 'run':
   case 'gate':
   case 'vote':
   case 'bus':

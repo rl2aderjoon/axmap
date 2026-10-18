@@ -1,5 +1,6 @@
 .axmap/
 node_modules/
+/HANDOVER.local.md
 desktop/node_modules/
 desktop/dist/
 desktop/build/

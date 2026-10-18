@@ -8,7 +8,7 @@
 커밋 훅으로 선점 범위를 확인하고, 작업이 끝나면 반납한다.
 AI 도구에서는 MCP로 같은 기능을 사용할 수 있다.
 
-Node 20+와 git이 필요하다. CLI의 런타임 의존성은 없다.
+Node 20+와 git이 필요하다. 터미널 연결용 라이브러리는 npm 설치에 함께 포함된다.
 npm 패키지 이름은 `axmap-cli`, 실행 명령은 `axmap`이다.
 
 ## 설치
@@ -118,7 +118,7 @@ npm run demo:compare
 npm run demo:chaos
 ```
 
-루트 CLI를 실행하기 위한 `npm install`은 필요 없다. 데모는 bash 환경에서 실행한다.
+선점 CLI는 소스에서 바로 실행할 수 있다. 터미널 연결 개발·검증은 `npm install`로 의존성을 설치한다. 데모는 bash 환경에서 실행한다.
 소스 확인에는 `node bin/axmap.mjs`를 사용한다.
 
 | 문서 | 내용 |

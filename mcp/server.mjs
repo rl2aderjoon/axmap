@@ -212,6 +212,15 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
  */
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
+const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result'])
+function bridge(args, input) {
+  const r = spawnSync(process.execPath, [path.join(SELF, 'tools', 'bridge.mjs'), ...args], {
+    cwd: REPO, input, encoding: 'utf8', windowsHide: true,
+    env: { ...process.env, AXMAP_AGENT: AGENT }, timeout: 45000,
+  })
+  return { ok: r.status === 0, text: (r.stdout || '') + (r.stderr || '') + (r.error ? r.error.message : '') }
+}
+
 /**
  * 쪽지함 CLI 를 부른다. `cli` 와 달리 stdin 으로 본문을 넘긴다.
  *
@@ -376,6 +385,26 @@ function cli(args) {
 // ---------------------------------------------------------------------------
 
 const TOOLS = [
+  {
+    name: 'ax_sessions',
+    description: '현재 repo에 공식 훅으로 연결된 로컬 AI 세션을 확인한다. 등록은 연결 가능성이나 실행 성공을 보장하지 않는다.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'ax_dispatch',
+    description: '사용자가 허용한 작업을 열린 상대 세션에 전달한다. 기존 맥락을 유지하며 새 세션을 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. 현재 수신 어댑터는 Antigravity CLI다.',
+    inputSchema: { type: 'object', properties: {
+      to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
+      prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
+    }, required: ['to', 'prompt'] },
+  },
+  {
+    name: 'ax_result',
+    description: '작업 요청의 제출/완료/불명 상태와 결과를 확인한다. 완료는 상대의 종료 훅과 해당 요청 이후 대화 기록으로 확인한다.',
+    inputSchema: { type: 'object', properties: {
+      id: { type: 'string', description: 'ax_dispatch가 반환한 요청 UUID' },
+    }, required: ['id'] },
+  },
   {
     name: 'ax_brief',
     description:
@@ -807,6 +836,9 @@ function dispatch(name, args = {}) {
   const paths = Array.isArray(args.paths) ? args.paths.map(String) : []
 
   switch (name) {
+    case 'ax_sessions': return bridge(['sessions'])
+    case 'ax_dispatch': return bridge(['send', '--to', args.to], args.prompt)
+    case 'ax_result': return bridge(['result', args.id])
     case 'ax_brief':
       return { ok: true, text: brief() }
     case 'ax_init': {
@@ -1008,8 +1040,9 @@ async function handle(req) {
       do { task = rootsTask; await task } while (task !== rootsTask)
     }
     const r = callTool(params?.name, params?.arguments ?? {})
-    const warning = r.ok ? syncConfiguredProfile(REPO, BUS, { ...process.env, AXMAP_AGENT: AGENT }) : ''
-    return { content: [{ type: 'text', text: r.text + (warning ? '\n' + warning : '') + (r.ok ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
+    const localBridge = BRIDGE_TOOLS.has(params?.name)
+    const warning = r.ok && !localBridge ? syncConfiguredProfile(REPO, BUS, { ...process.env, AXMAP_AGENT: AGENT }) : ''
+    return { content: [{ type: 'text', text: r.text + (warning ? '\n' + warning : '') + (r.ok && !localBridge ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
   }
   if (method === 'ping') return {}
   return null // 알림이거나 지원하지 않는 메서드

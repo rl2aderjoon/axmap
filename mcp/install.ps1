@@ -219,6 +219,9 @@ foreach ($item in @('bin', 'src', 'mcp', 'tools', 'app', 'package.json', 'LICENS
   }
 }
 
+& node (Join-Path $Dest 'tools\run.mjs') install-runtime $Source
+if ($LASTEXITCODE -ne 0) { Fail '터미널 런타임 설치에 실패했습니다.' }
+
 $server = Join-Path $Dest 'mcp\server.mjs'
 if (-not (Test-Path -LiteralPath $server)) { Fail "복사가 끝났는데 서버가 없습니다: $server" }
 

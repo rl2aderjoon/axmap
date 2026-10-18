@@ -8,7 +8,7 @@ axMap records who is editing which paths and rejects overlapping claims.
 Commit hooks check changes against claimed paths, and agents release their claims when work is done.
 AI tools can use the same workflow through MCP.
 
-Requires Node.js 20+ and Git. The CLI has no npm runtime dependencies.
+Requires Node.js 20+ and Git. The terminal bridge dependency is included in the npm installation.
 The npm package is `axmap-cli`; the command is `axmap`.
 
 ## Installation
@@ -116,7 +116,7 @@ npm run demo:compare
 npm run demo:chaos
 ```
 
-The root CLI runs without `npm install`. The demos require Bash.
+Claim commands run directly from source. Run `npm install` before developing or testing the terminal bridge. The demos require Bash.
 Use `node bin/axmap.mjs` to run the source version.
 
 The following supporting documents are currently in Korean.

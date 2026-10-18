@@ -56,5 +56,8 @@
   "homepage": "https://github.com/rl2aderjoon/axmap#readme",
   "bugs": {
     "url": "https://github.com/rl2aderjoon/axmap/issues"
+  },
+  "dependencies": {
+    "node-pty": "npm:@lydell/node-pty@1.1.0"
   }
 }

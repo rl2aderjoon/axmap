@@ -218,6 +218,8 @@ for item in bin src mcp tools app package.json LICENSE; do
   fi
 done
 
+node "$DEST/tools/run.mjs" install-runtime "$SOURCE" || fail "터미널 런타임 설치에 실패했습니다."
+
 SERVER="$DEST/mcp/server.mjs"
 [ -f "$SERVER" ] || fail "복사가 끝났는데 서버가 없습니다: $SERVER"
 

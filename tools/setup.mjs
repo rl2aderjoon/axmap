@@ -251,6 +251,17 @@ function installAndRegister() {
 
 installAndRegister()
 
+// The installed copy owns stable hook paths, including the bundled PTY runtime.
+if (!has('--no-register')) {
+  if (DRY) hm('세션 연결', '(dry-run) 설치된 사본에 CLI 연결 훅을 등록합니다')
+  else {
+    const hookRunner = path.join(DEST, 'tools', 'run.mjs')
+    const r = spawnSync(process.execPath, [hookRunner, 'install-hooks'], { encoding: 'utf8', windowsHide: true })
+    if (r.status === 0) ok('세션 연결', 'axmap run agy로 여는 CLI가 자동 연결됩니다')
+    else no('세션 연결', r.stderr?.trim() || '연결 훅 등록 실패')
+  }
+}
+
 // ── 6. 장부와 훅 ────────────────────────────────────────────────────────────
 //
 // 🔴 **설치된 사본**(`~/.axmap/app`)의 CLI 로 부른다. npx 가 푼 임시 폴더의 것으로
