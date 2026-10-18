@@ -1,19 +1,24 @@
 {
   "agent": "janghyojoon",
   "task": "local-session-bridge",
-  "intent": "열린 Antigravity CLI 세션의 공식 agentapi 연결 검증과 axMap 세션 등록·작업 전달·결과 조회 구현",
+  "intent": "npm에 동봉되는 PTY로 사용자가 여는 AI CLI를 유지하고 같은 세션에 요청을 전달하는 연결 구현",
   "actor": "agent",
   "session": "mcp-428",
-  "since": "2026-10-18T02:49:35.429Z",
+  "since": "2026-10-18T03:03:54.665Z",
   "ttlMs": 2700000,
   "paths": [
     "bin/axmap.mjs",
     "docs/DECISIONS.md",
     "docs/SESSION-BRIDGE.md",
     "mcp/server.mjs",
+    "package-lock.json",
+    "package.json",
     "src/bridge.mjs",
+    "src/terminal-bridge.mjs",
     "test/bridge.test.mjs",
     "test/mcp-bridge.test.mjs",
-    "tools/bridge.mjs"
+    "test/terminal-bridge.test.mjs",
+    "tools/bridge.mjs",
+    "tools/run.mjs"
   ]
 }
