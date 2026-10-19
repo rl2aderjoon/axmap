@@ -1,0 +1,21 @@
+{
+  "agent": "codex-session-release",
+  "task": null,
+  "intent": "Codex-agy automatic communication, measured usage, verification and next release",
+  "actor": null,
+  "session": "axmap-codex-agy-release-20261020",
+  "since": "2026-10-19T15:00:44.219Z",
+  "ttlMs": 14400000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "bin",
+    "docs",
+    "mcp",
+    "package-lock.json",
+    "package.json",
+    "src",
+    "test",
+    "tools"
+  ]
+}
