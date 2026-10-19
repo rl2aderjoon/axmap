@@ -28,7 +28,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { stateDir } from './repotarget.mjs'
+import { stateDir } from './state.mjs'
 
 /**
  * 꾸러미 이름. **`package.json` 의 `name` 과 반드시 같아야 한다.**

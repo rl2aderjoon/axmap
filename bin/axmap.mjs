@@ -43,7 +43,7 @@ import {
   noticeLine,
   registryUrl,
 } from '../src/update.mjs'
-import { stateDir } from '../src/repotarget.mjs'
+import { stateDir } from '../src/state.mjs'
 import { homeRegistrations } from '../src/mcpstate.mjs'
 import { compareBranchFor, formatOverlap } from '../src/overlap.mjs'
 import { withRepoLock } from '../src/repolock.mjs'
@@ -2599,7 +2599,7 @@ exec node "$AX" verify
  *
  * 🔴 **import 하지 않고 spawn 한다.** 이유가 둘이다.
  *
- *   1. `tools/setup.mjs` 는 설치기를 부르느라 `app/lib/agentcli.mjs` 계열까지
+ *   1. `tools/setup.mjs` 는 설치기를 부르느라 `src/agentcli.mjs` 계열까지
  *      끌고 온다. 여기서 static import 를 걸면 그 전부가 `src/closure.mjs` 의
  *      import 그래프에 잡혀 **팀 저장소의 `ci/axmap/` 사본이 통째로 불어난다.**
  *      사본은 CI 가 판정에 쓰는 파일만 담기로 한 자리다.
@@ -2766,7 +2766,7 @@ async function cmdUpdate(flags) {
  *
  * 🔴 자리를 여기서 새로 정하지 않는다 — `stateDir()` 을 쓴다. 그래야
  *    `AXMAP_STATE_DIR` 이 여기에도 걸린다. 그 환경변수가 있는 이유가
- *    `src/repotarget.mjs` 에 적혀 있다 — *"테스트가 사람의 작업 환경을 고치는
+ *    `src/state.mjs` 에 적혀 있다 — *"테스트가 사람의 작업 환경을 고치는
  *    것은 어떤 이유로도 정당하지 않다."* `os.homedir()` 를 직접 부르면 이 명령의
  *    출력이 **돌리는 사람의 PC 상태에 따라 달라지고**, 그러면 시험이 사람마다
  *    다른 답을 낸다 (실제로 그렇게 깨졌다).
@@ -2833,7 +2833,7 @@ const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
   axmap gate                         이 MR 이 정족수를 채웠는가 (CI 가 부른다)
   axmap vote                         표를 던진다
   axmap bus                          에이전트 사이 쪽지함 (post · list · read · reply)
-  axmap bridge                       열린 로컬 AI 세션 연결 (install · sessions · send · result)
+  axmap bridge                       로컬 세션·자동 대화 (serve · sessions · send · chat · dialogue)
   axmap run agy [인수...]             연결된 Antigravity CLI를 직접 연다
   axmap mr-target                    이 브랜치가 저 브랜치로 갈 수 있는가
   axmap version                      브랜치 단계로 다음 버전을 정한다

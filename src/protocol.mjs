@@ -492,7 +492,7 @@ export const DEFAULT_MERGE_POLICY = {
     { need: 0, paths: ['docs'] },
   ],
   // CLAUDE.md 의 검증 목록 그대로다. 여기서 새로 정하지 않는다.
-  requiredGates: ['test', 'demo', 'demo:compare', 'demo:chaos', 'smoke', 'desktop:smoke'],
+  requiredGates: ['test', 'demo', 'demo:compare', 'demo:chaos'],
 }
 
 /**

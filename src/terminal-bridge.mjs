@@ -20,9 +20,10 @@ const pipeFor = id => process.platform === 'win32'
 
 export function sendTerminal(id, message, token = null) {
   const s = readJSON(sessionFile(id))
-  if (s.transport !== 'pty') throw new Error('PTY 세션이 아닙니다.')
+  if (!['pty', 'stdio'].includes(s.transport)) throw new Error('로컬 관리형 세션이 아닙니다.')
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pipeFor(id))
+    socket.setEncoding('utf8')
     let buffer = ''
     const fail = e => { socket.destroy(); reject(e) }
     socket.setTimeout(10000, () => fail(new Error('로컬 세션 응답 시간 초과. 자동 재전송하지 마세요.')))
@@ -114,6 +115,7 @@ export async function startTerminal({ executable, args = [], provider, cwd = pro
   }
   fs.mkdirSync(bridgeHome(), { recursive: true, mode: 0o700 })
   const server = net.createServer(socket => {
+    socket.setEncoding('utf8')
     let buffer = '', handled = false
     socket.setTimeout(15000, () => socket.destroy())
     socket.on('error', () => {})

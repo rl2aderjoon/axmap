@@ -69,7 +69,7 @@ const EXPECTED = [
   'src/promote.mjs',
   'src/protocol.mjs',
   'src/repolock.mjs',
-  'src/repotarget.mjs',
+  'src/state.mjs',
   // `src/update.mjs` 는 사본에서 **아무것도 하지 않는다.** 옆에 SOURCE.json 이 있으면
   // 사본으로 판정하고 갱신 확인을 통째로 건너뛴다(test/update.test.mjs 가 고정한다).
   // 그래도 목록에 있어야 한다 — `bin/axmap.mjs` 가 static import 하므로, 사본에

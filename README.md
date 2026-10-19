@@ -1,134 +1,134 @@
 # axMap
 
-[![English](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-en.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.md) [![한국어](https://raw.githubusercontent.com/rl2aderjoon/axmap/main/docs/assets/readme-ko.svg)](https://github.com/rl2aderjoon/axmap/blob/main/README.ko.md)
+**Several AI agents. One repository. Clear ownership before every edit.**
 
-**A CLI tool that helps AI agents avoid conflicting edits by claiming paths before working in the same Git repository.**
+axMap is a collaboration CLI that claims files and folders before work begins and rejects overlapping claims.
+Codex, Antigravity and Claude Code can use claims, releases, status and messaging through MCP.
 
-axMap records who is editing which paths and rejects overlapping claims.
-Commit hooks check changes against claimed paths, and agents release their claims when work is done.
-AI tools can use the same workflow through MCP.
+**English** · [한국어](README.ko.md) &nbsp; / &nbsp; Node.js 20+ · Git · MIT
 
-Requires Node.js 20+ and Git. The terminal bridge dependency is included in the npm installation.
-The npm package is `axmap-cli`; the command is `axmap`.
-
-## Installation
-
-Run these commands from any folder, including outside a Git repository.
+## Install
 
 ```bash
 npm install -g axmap-cli@latest
 axmap setup
 ```
 
-`setup` installs axMap and registers MCP in your AI tool's user settings. It does not bind the installation to the current folder or initialize a repository.
-Restart your AI tool after setup to use MCP.
-People and agents working together must share the same remote ledger to see each other's claims.
+Run setup once from any folder, then restart your AI tool.
+Each Git repository's ledger is prepared on first use. Collaborators must share the same remote ledger.
 
-During interactive setup, enter the name people should use for messages, such as `John Smith` or `장효준`. To set or correct it without a prompt, run `axmap setup --name "John Smith"`. Reinstallation keeps the saved name. Git's name and email settings are unchanged.
+[Usage](docs/INSTALL.md) · [MCP setup](mcp/README.md) · [Development](docs/ONBOARD-TEAM.md)
 
-On first use in a repository, axMap reads that repository's Git email and shares your display name through the existing `axmap/users` branch. No code commit or per-repository manual registration is needed. Teammates discover it when their user information synchronizes. This requires push access; an offline or rejected update is reported and retried. Setup alone does not announce you to repositories you have never used.
+---
 
-Use `axmap bus contacts` to list known names and email addresses. Messages sent to a known name are addressed to its email, so correcting the name preserves delivery and read history. If multiple people use the same name, specify the recipient's email. Messaging registration does not grant voting or MR approval rights.
+## Changelog
 
-See [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) for installation and configuration details (Korean).
+Newest changes first.
 
-## 1.3.3: Windows Codex registration fix
+### 1.4.0
 
-`axmap setup` now registers Codex correctly when Codex is installed through npm on Windows. It launches the package's Node entry directly, preserving paths and arguments without a shell.
+<sub>October 20, 2026</sub>
 
-## Global setup and automatic repositories in 1.3.1
+**Codex and Antigravity can exchange tasks automatically, with measured token usage and bounded conversations.**
 
-Set up axMap once, then open Codex or another AI CLI in any Git repository. axMap selects that session's repository and prepares its ledger on the first status or claim request. There is no per-repository `axmap init` step.
+**Added**
 
-Existing remote ledgers are reused. Linked worktrees share one ledger, and simultaneous sessions in different repositories keep independent targets. Remote access failures stop the request instead of creating a separate ledger.
+- `axmap bridge serve codex|agy` explicitly starts persistent managed CLI sessions. `bridge chat` relays short messages until completion or a configured limit.
+- MCP `ax_chat`, `ax_dialogue`, and `ax_chat_stop` start, inspect, and stop automatic relay. Per-request and cumulative token counts include cache details; idle waiting makes no model calls.
+- The separate prototype `axmap run` command connects a user-launched interactive terminal.
+- The terminal dependency ships with npm installation and is copied into setup's installed runtime.
 
-MCP follows workspace roots supplied by the client. When roots are unsupported, it uses the launch directory; pass the absolute working directory through the tool's `cwd` argument for later directory changes. Run `axmap hook install` in each repository where you want commit enforcement.
+**Removed**
 
-To upgrade an existing installation, run this once from any folder, then restart your AI CLI:
+- Code visualization screens, the Electron app, analysis and corpus tools, and their tests and research documents.
+- Setup and MCP now share CLI discovery from a dedicated source module.
 
-```bash
-npm install -g axmap-cli@latest
-axmap setup
-```
+**Validation**
 
-`setup` refreshes the installed MCP and shared hook runner as well as its registration. Subsequent repository changes do not require another setup or init. To explicitly prepare one repository and its commit hook during setup, use `axmap setup --repo <path>`.
+On Windows, actual Codex 0.163.0 and agy 1.4.2 completed a four-turn automatic exchange with retained context, followed by a two-turn MCP background exchange.
+These six model turns processed 102,590 tokens, including 54,400 cached input tokens and 393 output tokens. CLI context dominates short-message costs; budgets are checked before the next turn, not enforced as a hard limit within an active turn.
+The separate interactive PTY prototype remains validated with simulated programs only.
+[Read the development status →](docs/SESSION-BRIDGE.md)
 
-## Workflow
+---
 
-```bash
-# Check who has claimed which paths
-axmap status
+### 1.3.3
 
-# Declare your paths and purpose before editing
-axmap claim src/auth --agent my-agent --session my-session --task T-12 --intent "Handle token expiration"
+<sub>October 16, 2026</sub>
 
-# After editing, stage your changes and check their claimed scope
-git add src/auth
-axmap verify --agent my-agent --session my-session
+**Windows setup connects npm-installed Codex correctly.**
 
-# Release your claims when work is done
-axmap release --agent my-agent --session my-session
-```
+**Fixed**
 
-Use a unique agent name and session for each work session, and keep them consistent from claim to release.
-Set the `AXMAP_AGENT` and `AXMAP_SESSION` environment variables so commit hooks use the same identity.
-If a claim is rejected, check its owner, purpose, and remaining time, then choose a different area.
-Claim only the paths you need. For longer tasks, run `axmap renew` with the same agent and session.
+- `axmap setup` launches the Codex package's Node entry directly.
+- Paths containing spaces and quoted arguments reach Codex without shell reinterpretation.
 
-Work folders created with `git worktree` share the same ledger.
-`release` releases paths claimed by the current session.
+[Release source →](https://github.com/rl2aderjoon/axmap/tree/v1.3.3)
 
-## How it works
+---
 
-Git detects text conflicts when changes are merged.
-axMap claims paths before edits to prevent agents from working on the same area at the same time.
+### 1.3.2
 
-The claim ledger lives on a dedicated Git branch. axMap checks the latest remote ledger,
-then uses atomic Git ref updates and path overlap checks to acquire claims.
-Commit hooks compare staged changes with claimed paths.
-`axmap audit` replays the ledger history to check for rule violations.
+<sub>October 16, 2026</sub>
 
-axMap reports unreadable state and refuses operations it cannot safely evaluate.
-The protocol is documented in [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md), and its invariants in [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md) (Korean).
+**Choose your messaging name. Discover teammates automatically.**
 
-## Using AI tools
+**Added**
 
-With MCP connected, AI agents can call tools such as `ax_claim`, `ax_status`, and `ax_release`.
-Give your agents these working rules.
+- Interactive setup asks for a display name. Change it with `axmap setup --name "Your name"`.
+- First use in a repository shares its Git email and your display name through the team's user ledger.
+- `axmap bus contacts` lists known recipients.
 
-```text
-Before editing files, declare the paths and purpose with ax_claim.
-If a claim is rejected, check its owner and choose another task with no overlapping paths.
-Release your claims with ax_release when work is done.
-```
+**Updated**
 
-See [mcp/README.md](https://github.com/rl2aderjoon/axmap/blob/main/mcp/README.md) for connection instructions and the tool list (Korean).
+- Messages sent to a known name are addressed by email, preserving delivery and read history after name changes.
+- Duplicate names require an email address. Failed profile updates are reported and retried on later use.
+- Git identity settings and voting permissions remain unchanged.
 
-## Development and verification
+[Release source →](https://github.com/rl2aderjoon/axmap/tree/v1.3.2)
 
-```bash
-git clone https://github.com/rl2aderjoon/axmap.git
-cd axmap
-node bin/axmap.mjs --version
-npm test
-npm run demo
-npm run demo:compare
-npm run demo:chaos
-```
+---
 
-Claim commands run directly from source. Run `npm install` before developing or testing the terminal bridge. The demos require Bash.
-Use `node bin/axmap.mjs` to run the source version.
+### 1.3.1
 
-The following supporting documents are currently in Korean.
+<sub>October 15, 2026</sub>
 
-| Document | Contents |
-|---|---|
-| [CLAUDE.md](https://github.com/rl2aderjoon/axmap/blob/main/CLAUDE.md) | Rules for working on the source |
-| [docs/INSTALL.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INSTALL.md) | Installation and usage |
-| [docs/SPEC.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/SPEC.md) | Commands and the claim protocol |
-| [docs/INVARIANTS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/INVARIANTS.md) | Invariants and verification criteria |
-| [docs/DECISIONS.md](https://github.com/rl2aderjoon/axmap/blob/main/docs/DECISIONS.md) | Product scope and design decisions |
+**One setup, from any folder.**
 
-## License
+**Updated**
 
-[MIT](https://github.com/rl2aderjoon/axmap/blob/main/LICENSE)
+- Installation and MCP registration work outside Git repositories.
+- Running setup in a folder does not pin future work to that repository.
+- Registration refreshes server paths and environment settings while preserving personal settings and other servers.
+
+Use `axmap setup --repo <path>` to prepare a specific repository's ledger and commit hook.
+
+[Release source →](https://github.com/rl2aderjoon/axmap/tree/v1.3.1)
+
+---
+
+### 1.3.0
+
+<sub>October 15, 2026</sub>
+
+**Your session follows its working repository.**
+
+**Added**
+
+- Status and claim commands prepare missing ledgers automatically, removing the repeated `init` step.
+- MCP follows client workspace roots and their change notifications.
+
+**Updated**
+
+- Existing remote ledgers are reused, and linked worktrees share one ledger.
+- Sessions in separate repositories keep independent targets.
+- A remote access failure is never treated as an empty ledger.
+
+Use the MCP tool's `cwd` argument when roots are unavailable or the target is ambiguous.
+Run `axmap hook install` in repositories that need commit enforcement.
+
+[Release source →](https://github.com/rl2aderjoon/axmap/tree/v1.3.0)
+
+---
+
+[Installation & upgrades](docs/INSTALL.md) · [Protocol](docs/SPEC.md) · [Report an issue](https://github.com/rl2aderjoon/axmap/issues) · [MIT license](LICENSE)

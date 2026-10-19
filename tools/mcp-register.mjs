@@ -30,7 +30,7 @@
  *
  * ── 감지는 새로 짜지 않는다 ───────────────────────────────────────────────
  *
- * 어떤 CLI 가 이 PC 에 있는지는 `app/lib/agentcli.mjs` 가 이미 안다(`AGENTS`, `resolveBin`).
+ * 어떤 CLI 가 이 PC 에 있는지는 `src/agentcli.mjs` 가 이미 안다(`AGENTS`, `resolveBin`).
  * 거기서 그대로 가져온다. 바이너리 이름이 두 군데에 적히면 한쪽만 낡는다.
  */
 
@@ -40,7 +40,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { AGENTS, resolveBin } from '../app/lib/agentcli.mjs'
+import { AGENTS, resolveBin } from '../src/agentcli.mjs'
 import { claudeUserEntry } from '../src/mcpstate.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))

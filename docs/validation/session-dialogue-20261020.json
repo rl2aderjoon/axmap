@@ -1,0 +1,177 @@
+{
+  "date": "2026-10-20 Asia/Seoul",
+  "platform": "Windows",
+  "providers": {
+    "codex": {
+      "version": "0.163.0",
+      "model": "gpt-6.1-sol"
+    },
+    "agy": {
+      "version": "1.4.2",
+      "model": "gemini-3.8-flash-low"
+    }
+  },
+  "scope": "Two explicitly started persistent processes, one conversation per provider, six actual model turns. No user relayed intermediate messages. No file editing or tool execution was requested.",
+  "runs": [
+    {
+      "name": "cli-memory-roundtrip",
+      "id": "8918a020-1ada-4bfb-8bd7-7cf7712e4cda",
+      "state": "completed",
+      "createdAt": "2026-10-19T15:07:43.066Z",
+      "endedAt": "2026-10-19T15:08:06.070Z",
+      "limits": {
+        "maxTurns": 4,
+        "maxTokens": 150000,
+        "maxMessageChars": 2000,
+        "timeoutMs": 120000
+      },
+      "usage": {
+        "inputTokens": 67461,
+        "cachedInputTokens": 33792,
+        "outputTokens": 367,
+        "reasoningTokens": 127,
+        "totalTokens": 67828,
+        "providerTotalTokens": 67828
+      },
+      "turns": [
+        {
+          "index": 1,
+          "to": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "from": "user",
+          "requestId": "140725ad-7900-49db-a00b-a3c4dc79b37b",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 20506,
+            "cachedInputTokens": 13440,
+            "outputTokens": 113,
+            "reasoningTokens": 0,
+            "totalTokens": 20619,
+            "providerTotalTokens": 20619
+          },
+          "conversationId": "01a154b3-bc1b-7990-b919-dcceb6f47f4d",
+          "message": "B, we must exchange exactly four short messages. This is message 1: compute 731+19. In message 2, return the sum and ask A for its remembered private code, done:false. In message 3, A will provide the code and ask you to subtract 731 from your earlier sum and acknowledge the code, done:false. In message 4, return the difference and received code, done:true. Use the axMap JSON envelope throughout. Verification only; do not use tools.",
+          "done": false,
+          "provider": "codex"
+        },
+        {
+          "index": 2,
+          "to": "9e946b85-9d60-4603-a31b-627fbacac052",
+          "from": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "requestId": "99a99095-8065-4eab-9f4b-da5ed760e03f",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 12860,
+            "cachedInputTokens": 0,
+            "outputTokens": 94,
+            "reasoningTokens": 62,
+            "totalTokens": 12954,
+            "providerTotalTokens": 12954
+          },
+          "conversationId": "75c04a0f-d51a-445e-b894-fc6b99170388",
+          "message": "The sum of 731 and 19 is 750. What is your remembered private code?",
+          "done": false,
+          "provider": "agy"
+        },
+        {
+          "index": 3,
+          "to": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "from": "9e946b85-9d60-4603-a31b-627fbacac052",
+          "requestId": "3513f9fc-38d8-4805-90d4-5767f6615320",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 20820,
+            "cachedInputTokens": 20352,
+            "outputTokens": 51,
+            "reasoningTokens": 0,
+            "totalTokens": 20871,
+            "providerTotalTokens": 20871
+          },
+          "conversationId": "01a154b3-bc1b-7990-b919-dcceb6f47f4d",
+          "message": "My remembered private code is ORBIT-5942. Subtract 731 from your earlier sum of 750, and return the difference and acknowledge the received code in message 4 with done:true.",
+          "done": false,
+          "provider": "codex"
+        },
+        {
+          "index": 4,
+          "to": "9e946b85-9d60-4603-a31b-627fbacac052",
+          "from": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "requestId": "cbc9725d-9646-419e-b8a5-eb805a4561c7",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 13275,
+            "cachedInputTokens": 0,
+            "outputTokens": 109,
+            "reasoningTokens": 65,
+            "totalTokens": 13384,
+            "providerTotalTokens": 13384
+          },
+          "conversationId": "75c04a0f-d51a-445e-b894-fc6b99170388",
+          "message": "The difference is 19 (750 - 731 = 19), and I acknowledge receipt of your code: ORBIT-5942.",
+          "done": true,
+          "provider": "agy"
+        }
+      ]
+    },
+    {
+      "name": "mcp-background-roundtrip",
+      "id": "e6b85e4d-854c-4848-8837-3db207ec40e1",
+      "state": "completed",
+      "createdAt": "2026-10-19T15:10:57.195Z",
+      "endedAt": "2026-10-19T15:11:05.941Z",
+      "limits": {
+        "maxTurns": 2,
+        "maxTokens": 60000,
+        "maxMessageChars": 2000,
+        "timeoutMs": 120000
+      },
+      "usage": {
+        "inputTokens": 34736,
+        "cachedInputTokens": 20608,
+        "outputTokens": 26,
+        "reasoningTokens": 0,
+        "totalTokens": 34762,
+        "providerTotalTokens": 34762
+      },
+      "turns": [
+        {
+          "index": 1,
+          "to": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "from": "user",
+          "requestId": "31742325-f117-4b89-afee-6d2994bc0f4a",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 21069,
+            "cachedInputTokens": 20608,
+            "outputTokens": 17,
+            "reasoningTokens": 0,
+            "totalTokens": 21086,
+            "providerTotalTokens": 21086
+          },
+          "conversationId": "01a154b3-bc1b-7990-b919-dcceb6f47f4d",
+          "message": "Reply READY with done:true.",
+          "done": false,
+          "provider": "codex"
+        },
+        {
+          "index": 2,
+          "to": "9e946b85-9d60-4603-a31b-627fbacac052",
+          "from": "0cd036a5-3944-42f7-9c79-e1aef47d1e52",
+          "requestId": "7facbe4e-7e13-4f9d-a5db-0140ac1d726c",
+          "state": "completed",
+          "usage": {
+            "inputTokens": 13667,
+            "cachedInputTokens": 0,
+            "outputTokens": 9,
+            "reasoningTokens": 0,
+            "totalTokens": 13676,
+            "providerTotalTokens": 13676
+          },
+          "conversationId": "75c04a0f-d51a-445e-b894-fc6b99170388",
+          "message": "READY",
+          "done": true,
+          "provider": "agy"
+        }
+      ]
+    }
+  ]
+}

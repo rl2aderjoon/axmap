@@ -4,7 +4,7 @@
 
 npm: https://www.npmjs.com/package/axmap-cli
 
-루트 패키지는 `axmap-cli`이며 실행 명령은 `axmap`이다. `package.json`의 `files`가 CLI·MCP·웹 앱·거버넌스·설정 도구의 npm 배포 범위를 정한다. 테스트, 연구 결과와 데스크톱 셸은 소스 저장소에서 제공한다.
+루트 패키지는 `axmap-cli`이며 실행 명령은 `axmap`이다. `package.json`의 `files`가 CLI·MCP·거버넌스·설정 도구의 npm 배포 범위를 정한다. 터미널 연결에 필요한 의존성은 npm이 함께 설치하며, 사용자가 별도로 준비하지 않는다. 테스트는 소스 저장소에서 제공한다.
 
 ```bash
 npm pack --dry-run

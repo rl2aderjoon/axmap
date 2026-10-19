@@ -8,7 +8,7 @@
  *      1. `bus.mjs` 를 `REPO` 에서 찾아 남의 저장소에서 MODULE_NOT_FOUND 로 죽었다
  *      2. `ax_init` 이 도구 목록에 없어, 장부 없는 저장소에서 에이전트가
  *         "axmap init 을 실행하라" 는 지시를 읽고도 실행할 수 없었다
- *      3. `ax_brief` 가 대상이 무엇이든 axMap 자신의 코드 지도를 냈다
+ *      3. `ax_brief` 가 대상이 무엇이든 axMap 자신의 구성 목록를 냈다
  *
  *    `npm test` 도 `npm run demo` 도 전부 초록이었다. 도는 조합이 하나뿐이었기
  *    때문이다. 그래서 여기서 고정하는 것은 기능이 아니라 **조합**이다:
@@ -147,10 +147,10 @@ describe('남의 저장소에 붙었을 때', () => {
 })
 
 describe('브리핑은 대상 저장소를 설명한다', () => {
-  it('🔴 axMap 자신의 코드 지도를 남에게 주지 않는다', () => {
+  it('🔴 axMap 자신의 구성 목록를 남에게 주지 않는다', () => {
     const t = textOf(rpc([call(1, 'ax_brief')]).get(1))
     // 이것들은 axMap 의 파일이다. 남의 브리핑에 나오면 남의 지도를 준 것이다.
-    for (const leak of ['src/protocol.mjs', 'app/web/graph.js', 'desktop/main.mjs']) {
+    for (const leak of ['src/protocol.mjs', 'src/bridge.mjs', 'src/terminal-bridge.mjs']) {
       assert.ok(!t.includes(leak), `대상 저장소 브리핑에 axMap 의 파일이 샜다: ${leak}`)
     }
   })
@@ -169,9 +169,9 @@ describe('브리핑은 대상 저장소를 설명한다', () => {
 })
 
 describe('자기 자신을 겨눴을 때는 그대로다', () => {
-  it('코드 지도와 검증 목록이 나온다', () => {
+  it('구성 목록과 검증 목록이 나온다', () => {
     const t = textOf(rpc([call(1, 'ax_brief')], { repoPath: SELF }).get(1))
-    assert.match(t, /## 코드 지도/)
+    assert.match(t, /## 주요 구성/)
     assert.match(t, /src\/protocol\.mjs/)
     assert.match(t, /demo:chaos/, 'CLAUDE.md 의 검증 절에서 읽어와야 한다')
   })

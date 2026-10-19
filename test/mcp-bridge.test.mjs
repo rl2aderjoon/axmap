@@ -16,6 +16,7 @@ test('MCP exposes local session tools; missing sessions are errors with no ledge
       { id: 1, method: 'tools/list' },
       { id: 2, method: 'tools/call', params: { name: 'ax_sessions', arguments: {} } },
       { id: 3, method: 'tools/call', params: { name: 'ax_dispatch', arguments: { to: '00000000-0000-0000-0000-000000000000', prompt: 'hello' } } },
+      { id: 4, method: 'tools/call', params: { name: 'ax_chat', arguments: { left: 'missing', right: 'missing', prompt: 'hello' } } },
     ]
     const r = spawnSync(process.execPath, [server], { cwd: repo, encoding: 'utf8', windowsHide: true,
       env: { ...process.env, AXMAP_REPO: repo, AXMAP_AGENT: 'bridge-test', AXMAP_STATE_DIR: path.join(repo, 'state') },
@@ -24,10 +25,11 @@ test('MCP exposes local session tools; missing sessions are errors with no ledge
     assert.equal(r.status, 0, r.stderr)
     const responses = new Map(r.stdout.trim().split('\n').map(s => { const m = JSON.parse(s); return [m.id, m] }))
     const names = responses.get(1).result.tools.map(t => t.name)
-    for (const name of ['ax_sessions', 'ax_dispatch', 'ax_result']) assert.ok(names.includes(name))
+    for (const name of ['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop']) assert.ok(names.includes(name))
     assert.equal(responses.get(2).result.isError, false)
     assert.deepEqual(JSON.parse(responses.get(2).result.content[0].text), [])
     assert.equal(responses.get(3).result.isError, true)
+    assert.equal(responses.get(4).result.isError, true)
     assert.equal(fs.existsSync(path.join(repo, '.axmap')), false)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })

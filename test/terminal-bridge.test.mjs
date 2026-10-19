@@ -56,7 +56,7 @@ for (const provider of ['agy', 'codex']) test(`${provider}: real PTY keeps one p
       console.log(r.stderr||'TURN_DONE');
     });
   `)
-  let host, session, originalPid, ready = false, exitPromise
+  let host, session, originalPid, ready = false, exitPromise, stderr = ''
   const hostScript = path.join(dir, 'host.mjs')
   fs.writeFileSync(hostScript, `
     import {startTerminal} from ${JSON.stringify(new URL('../src/terminal-bridge.mjs', import.meta.url).href)};
@@ -71,7 +71,8 @@ for (const provider of ['agy', 'codex']) test(`${provider}: real PTY keeps one p
   try {
     host = spawn(process.execPath, [hostScript], { cwd: dir, env: process.env, windowsHide: true })
     exitPromise = new Promise(resolve => host.on('exit', code => resolve(code)))
-    let buffer = '', stderr = ''
+    let buffer = ''
+    host.stdin.on('error', () => {})
     host.stderr.on('data', d => { stderr += d })
     host.stdout.on('data', d => {
       buffer += d
@@ -98,16 +99,23 @@ for (const provider of ['agy', 'codex']) test(`${provider}: real PTY keeps one p
     await wait(100)
     await assert.rejects(bridge(dir, ['send', '--to', session], 'must not replace user draft'), /대기 중이 아니거나 입력 중/)
     assert.equal(stderr, '')
+  } catch (e) {
+    let status
+    try {
+      const s = JSON.parse(fs.readFileSync(path.join(process.env.AXMAP_STATE_DIR, 'bridge', 'sessions', `${session}.json`), 'utf8'))
+      status = { state: s.state, event: s.event, fullyIdle: s.fullyIdle }
+    } catch { status = { ready, session } }
+    throw new Error(`${e.message}\n${JSON.stringify(status)}\n${stderr}`, { cause: e })
   } finally {
     if (host) {
-      host.stdin.write(JSON.stringify({ input: 'EXIT\r' }) + '\n')
+      if (host.exitCode === null && host.signalCode === null && !host.stdin.destroyed) host.stdin.write(JSON.stringify({ input: 'EXIT\r' }) + '\n')
       const timeout = setTimeout(() => host.kill(), 5000)
       const exitCode = await exitPromise
       clearTimeout(timeout)
-      assert.equal(exitCode, 0, 'terminal host must exit cleanly')
+      assert.equal(exitCode, 0, `terminal host must exit cleanly: ${stderr}`)
     }
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 })
 

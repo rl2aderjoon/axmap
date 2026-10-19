@@ -144,7 +144,7 @@ SOURCE=$(cd "$SOURCE" && pwd)
 if [ ! -f "$SOURCE/bin/axmap.mjs" ] && [ -f "$SOURCE/axmap/bin/axmap.mjs" ]; then
   SOURCE=$(cd "$SOURCE/axmap" && pwd)
 fi
-for need in bin/axmap.mjs mcp/server.mjs src/protocol.mjs tools/mcp-register.mjs app/lib/agentcli.mjs package.json; do
+for need in bin/axmap.mjs mcp/server.mjs src/protocol.mjs tools/mcp-register.mjs src/agentcli.mjs package.json; do
   if [ ! -e "$SOURCE/$need" ]; then
     fail "axMap 원본이 온전하지 않습니다. 없는 파일: $need
   본 곳: $SOURCE
@@ -198,8 +198,8 @@ say ''
 say "복사합니다 -> $DEST"
 mkdir -p "$DEST" || fail "설치 폴더를 만들지 못했습니다: $DEST"
 
-# desktop/ 은 뺀다. Electron 껍데기라 MCP 에 필요 없고 node_modules 가 수백 MB 다.
-for item in bin src mcp tools app package.json LICENSE; do
+# Copy the CLI, MCP and their shared runtime sources.
+for item in bin src mcp tools package.json LICENSE; do
   from="$SOURCE/$item"
   to="$DEST/$item"
   if [ ! -e "$from" ]; then hm "$item 없음 — 건너뜁니다"; continue; fi

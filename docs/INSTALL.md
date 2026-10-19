@@ -2,6 +2,10 @@
 
 Node 20 이상과 git이 필요하다. npm 패키지 이름은 `axmap-cli`, 설치 후 명령 이름은 `axmap`이다.
 
+Codex↔Antigravity 자동 소통은 [관리형 세션 안내](SESSION-BRIDGE.md)를 따른다.
+`axmap bridge serve codex|agy`로 대상 세션을 명시적으로 시작한 뒤 MCP `ax_chat` 또는
+CLI `bridge chat`으로 작업을 전달한다. 설치만으로 이미 열린 세션을 자동 제어하지 않는다.
+
 ```bash
 npm install -g axmap-cli@latest
 axmap setup
@@ -21,7 +25,7 @@ Git 저장소 밖을 포함해 어느 폴더에서든 실행한다. `setup`은 �
 
 설치와 MCP 등록은 한 번만 한다. 이후 201에서 109로 옮겨 AI CLI를 실행하면 해당 세션의 작업 repo를 사용한다. CLI도 현재 폴더의 Git repo를 사용한다. `status`, `claim`, `renew`, `release`, `verify`는 장부가 없으면 자동으로 준비한다. `doctor`는 진단만 한다.
 
-MCP 타겟 우선순위는 `AXMAP_REPO`로 명시한 고정 경로 → 도구의 절대 경로 `cwd` → 클라이언트의 작업 폴더(roots) → MCP 시작 폴더다. 앱의 전역 `current.json`은 CLI 세션의 타겟을 바꾸지 않는다. roots 변경 알림을 받으면 새 repo로 전환하고 이전 repo에서 이 세션이 잡은 claim을 반납한다. roots가 여러 repo를 가리키고 시작 repo로도 고를 수 없으면 `cwd`를 지정한다. roots 미지원 클라이언트의 실행 중 폴더 변경도 `cwd`로 전달한다.
+MCP 타겟 우선순위는 `AXMAP_REPO`로 명시한 고정 경로 → 도구의 절대 경로 `cwd` → 클라이언트의 작업 폴더(roots) → MCP 시작 폴더다. roots 변경 알림을 받으면 새 repo로 전환하고 이전 repo에서 이 세션이 잡은 claim을 반납한다. roots가 여러 repo를 가리키고 시작 repo로도 고를 수 없으면 `cwd`를 지정한다. roots 미지원 클라이언트의 실행 중 폴더 변경도 `cwd`로 전달한다.
 
 자동 준비는 원격의 `axmap/claims`가 있으면 이어 쓰고, 없다고 확인된 경우 새 고아 브랜치를 만든다. 원격이 없는 repo는 경고와 함께 로컬 모드로 동작한다. 원격 선택이 모호하거나 원격 확인이 실패하면 요청을 중단한다. GitHub와 GitLab 모두 같은 Git 프로토콜을 사용한다.
 

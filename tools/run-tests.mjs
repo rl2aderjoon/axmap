@@ -37,6 +37,13 @@ if (files.length === 0) {
   process.exit(1)
 }
 
-const r = spawnSync(process.execPath, ['--test', ...files], { stdio: 'inherit', cwd: root })
-// status 가 null 이면 신호로 죽은 것이다. 통과로 세지 않는다.
-process.exit(r.status ?? 1)
+// Windows ConPTY owns native console workers. Exercise it after other test
+// processes have exited so temporary console teardown cannot race the suite's
+// many concurrent subprocess fixtures. Both batches remain mandatory.
+const native = process.platform === 'win32' ? files.filter(f => path.basename(f) === 'terminal-bridge.test.mjs') : []
+const ordinary = files.filter(f => !native.includes(f))
+for (const batch of [ordinary, native].filter(batch => batch.length)) {
+  const r = spawnSync(process.execPath, ['--test', ...batch], { stdio: 'inherit', cwd: root })
+  if (r.status !== 0) process.exit(r.status ?? 1)
+}
+process.exit(0)

@@ -3,7 +3,7 @@
  * axMap MCP 서버.
  *
  * Claude Code 같은 AI 도구가 "나는 이 파일들을 건드리겠다"를 선언하게 만든다.
- * 그래야 뷰어가 지금 무슨 일이 일어나는지 보여줄 수 있다.
+ * 다른 에이전트가 작업 범위와 목적을 확인할 수 있다.
  *
  * 설정 (.mcp.json 또는 도구별 MCP 설정):
  *   {
@@ -212,7 +212,7 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
  */
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
-const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result'])
+const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop'])
 function bridge(args, input) {
   const r = spawnSync(process.execPath, [path.join(SELF, 'tools', 'bridge.mjs'), ...args], {
     cwd: REPO, input, encoding: 'utf8', windowsHide: true,
@@ -387,12 +387,12 @@ function cli(args) {
 const TOOLS = [
   {
     name: 'ax_sessions',
-    description: '현재 repo에 공식 훅으로 연결된 로컬 AI 세션을 확인한다. 등록은 연결 가능성이나 실행 성공을 보장하지 않는다.',
+    description: '현재 repo에 연결된 로컬 AI 세션, 역할, 상태와 측정 토큰 사용량을 확인한다. stdio는 사용자가 bridge serve로 시작한 관리형 세션이다. 등록만으로 연결 가능성이나 실행 성공을 보장하지 않는다.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'ax_dispatch',
-    description: '사용자가 허용한 작업을 열린 상대 세션에 전달한다. 기존 맥락을 유지하며 새 세션을 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. 현재 수신 어댑터는 Antigravity CLI다.',
+    description: '사용자가 허용한 작업을 연결된 상대 세션에 전달한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. Codex/agy 관리형 stdio, 실험용 PTY/agentapi 연결을 지원한다.',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
@@ -400,10 +400,32 @@ const TOOLS = [
   },
   {
     name: 'ax_result',
-    description: '작업 요청의 제출/완료/불명 상태와 결과를 확인한다. 완료는 상대의 종료 훅과 해당 요청 이후 대화 기록으로 확인한다.',
+    description: '작업 요청의 제출/완료/불명 상태, 결과와 측정 사용량을 확인한다. 관리형 세션은 CLI의 구조화된 실행 완료 이벤트, 실험용 터미널은 해당 요청의 종료 훅으로 판정한다.',
     inputSchema: { type: 'object', properties: {
       id: { type: 'string', description: 'ax_dispatch가 반환한 요청 UUID' },
     }, required: ['id'] },
+  },
+  {
+    name: 'ax_chat',
+    description: '사용자가 허용한 범위에서 대기 중인 관리형 세션 두 개의 자동 대화를 시작한다. 기본 최대 4회 실행, 측정 처리 토큰 50000, 메시지 2000자. 대기 중 모델 호출 없음. 한 번의 실행은 토큰 한도를 넘을 수 있으며 다음 실행 전에 검사한다. 접수는 완료가 아니다. ax_dialogue로 조회한다. 사용자 승인이나 연결 실패를 자동 우회하지 않는다.',
+    inputSchema: { type: 'object', properties: {
+      left: { type: 'string', description: '먼저 요청받을 stdio 세션 UUID' },
+      right: { type: 'string', description: '다른 stdio 세션 UUID' },
+      prompt: { type: 'string', description: '사용자가 부여한 작업과 종료 기준. 기본 2000자 이하' },
+      maxTurns: { type: 'integer', minimum: 1, maximum: 20 },
+      maxTokens: { type: 'integer', minimum: 1 },
+      maxMessageChars: { type: 'integer', minimum: 1, maximum: 8000 },
+    }, required: ['left', 'right', 'prompt'] },
+  },
+  {
+    name: 'ax_dialogue',
+    description: '자동 대화의 상태, 요청별 사용량과 누적 사용량을 확인한다. usage_unavailable는 측정 불가로 중단, token_limit는 다음 실행 시작을 막은 상태다.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+  {
+    name: 'ax_chat_stop',
+    description: '자동 대화의 추가 중계를 중단한다. 이미 전달된 모델 요청은 계속 실행될 수 있다. 상대 CLI를 강제 종료하지 않는다.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'ax_brief',
@@ -522,7 +544,7 @@ for (const tool of TOOLS) {
 const readFrom = (base, rel) => {
   try { return fs.readFileSync(path.join(base, rel), 'utf8') } catch { return null }
 }
-/** axMap 자신의 파일. 코드 지도(`MAP`)처럼 **이 도구에 관한 것**만 여기서 읽는다. */
+/** axMap 자신의 파일. 구성 목록처럼 **이 도구에 관한 것**만 여기서 읽는다. */
 const readSelf = (rel) => readFrom(SELF, rel)
 /** 대상 저장소의 파일. 브리핑의 내용은 원칙적으로 전부 이쪽이어야 한다. */
 const readRepo = (rel) => readFrom(REPO, rel)
@@ -577,23 +599,19 @@ function gist(rel) {
  * 경로만 여기 적고 설명은 파일에서 가져온다.
  * 경로는 거의 안 바뀌고 설명은 자주 바뀌므로, 낡을 수 있는 쪽을 자동화한다.
  */
-const MAP = [
-  ['판정 (순수)', 'src/protocol.mjs'],
-  ['불변식 검사기 (공유)', 'src/invariants.mjs'],
-  ['CLI · git · 훅', 'bin/axmap.mjs'],
-  ['MCP 서버 (이 파일)', 'mcp/server.mjs'],
-  ['뷰어 서버 · API', 'app/server.mjs'],
-  ['대화 세션 = CLI 프로세스', 'app/lib/session.mjs'],
-  ['세션마다의 이름 (슬롯)', 'app/lib/slots.mjs'],
-  ['AI CLI 감지 · 로그인', 'app/lib/agentcli.mjs'],
-  ['사다리 배치', 'app/lib/ladder.mjs'],
-  ['화면 부트스트랩', 'app/web/shell.js'],
-  ['가운데 칸 그리기', 'app/web/stage.js'],
-  ['화면에 나가는 말 (어휘)', 'app/web/words.js'],
-  ['데스크톱 셸 (Electron)', 'desktop/main.mjs'],
+const COMPONENTS = [
+  ['선점 판정', 'src/protocol.mjs'],
+  ['불변식 검사', 'src/invariants.mjs'],
+  ['CLI · Git · 훅', 'bin/axmap.mjs'],
+  ['MCP 서버', 'mcp/server.mjs'],
+  ['AI CLI 탐지', 'src/agentcli.mjs'],
+  ['로컬 작업 요청', 'src/bridge.mjs'],
+  ['터미널 세션 연결', 'src/terminal-bridge.mjs'],
+  ['설치·설정', 'tools/setup.mjs'],
+  ['쪽지함', 'tools/bus.mjs'],
 ]
 
-/** axMap 자신을 겨눴을 때. 코드 지도가 있는 유일한 경우다. */
+/** axMap 자신을 겨눴을 때만 자체 구성 목록을 보여준다. */
 function briefSelf() {
   const out = []
   out.push('# axMap — 새로 들어온 에이전트를 위한 브리핑')
@@ -618,12 +636,11 @@ function briefSelf() {
   // 번호를 여기 적지 않는다. 늘릴 때마다 이 줄이 낡는다 — 실제로 I8 을 넣고 놓쳤다.
   out.push('| 지켜야 할 성질 | `docs/INVARIANTS.md` |')
   out.push('| 왜 파서인가 | `docs/EXPERIMENT.md` |')
-  out.push('| 무엇을 재는가 | `docs/BENCH.md` — M3 도달 호출 번호가 주 지표다 |')
   out.push('')
 
-  out.push('## 코드 지도')
+  out.push('## 주요 구성')
   out.push('')
-  for (const [role, rel] of MAP) out.push(`- **${role}** — \`${rel}\`\n  ${gist(rel)}`)
+  for (const [role, rel] of COMPONENTS) out.push(`- **${role}** — \`${rel}\`\n  ${gist(rel)}`)
   out.push('')
   return out
 }
@@ -634,7 +651,7 @@ function briefSelf() {
  * 🔴 여기서 **axMap 의 문서를 대신 보여주지 않는다.**
  *
  * 예전에는 브리핑이 통째로 `readSelf` 였다. 그래서 남의 프로젝트에 붙여도
- * `src/protocol.mjs` · `app/web/graph.js` 같은 **axMap 의 코드 지도**가 나왔고,
+ * `src/protocol.mjs` · `src/bridge.mjs` 같은 **axMap 의 주요 구성**이 나왔고,
  * 받는 쪽에는 자기 저장소를 설명하는 것처럼 보인다.
  *
  * 이 저장소는 "낡은 지도는 없는 지도보다 나쁘다" 고 적어 두었는데,
@@ -642,7 +659,7 @@ function briefSelf() {
  * 낡은 지도는 언젠가 맞았기라도 하다.
  *
  * 그래서 대상에 문서가 없으면 **없다고 말하고 끝낸다.** 채워 넣지 않는다.
- * 코드 지도는 아예 만들지 않는다 — 지어낸 지도가 정확히 그 실패이기 때문이다.
+ * 구성 목록을 추측해서 만들지 않는다.
  */
 function briefForeign() {
   const out = []
@@ -694,8 +711,8 @@ function brief() {
   /**
    * 🔴 검증 목록을 `package.json` 에서 뽑지 않는다.
    *
-   * scripts 에는 검사(`test` · `smoke` · `demo:*`)와 실행(`app` · `desktop`)이
-   * 섞여 있다. 전부 나열하면 새 에이전트가 앱을 띄워 놓고 "검증했다" 고 여긴다.
+   * scripts 에는 검사와 설치 같은 실행 명령이 섞일 수 있다.
+   * 전부 나열하면 새 에이전트가 실행만 해 놓고 "검증했다" 고 여긴다.
    * **무엇이 통과해야 하는지를 정한 곳은 규칙 문서의 「검증」 절**이므로
    * 거기서 읽어 온다. 규격이 진실이고 목록은 그 사본이다.
    *
@@ -727,12 +744,6 @@ function brief() {
     out.push('')
     for (const c of cmds) out.push(`- \`${c}\``)
     out.push('')
-    // axMap 자신에게만 해당하는 주의다. 남의 저장소에 붙여 말하지 않는다.
-    if (!isForeign()) {
-      out.push('🔴 `app/web/` 를 건드렸으면 `npm run smoke` 는 **선택이 아니다.**')
-      out.push('`npm test` 는 브라우저 코드를 실행하지 않으므로 화면이 죽어도 초록이다.')
-      out.push('')
-    }
   }
 
   out.push('장부는 선점·조회 시 자동으로 준비한다. 별도 `ax_init` 호출은 필요 없다.')
@@ -839,6 +850,11 @@ function dispatch(name, args = {}) {
     case 'ax_sessions': return bridge(['sessions'])
     case 'ax_dispatch': return bridge(['send', '--to', args.to], args.prompt)
     case 'ax_result': return bridge(['result', args.id])
+    case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,
+      ...['maxTurns', 'maxTokens', 'maxMessageChars'].flatMap(key => args[key] === undefined ? [] :
+        [`--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, String(args[key])])], args.prompt)
+    case 'ax_dialogue': return bridge(['dialogue', args.id])
+    case 'ax_chat_stop': return bridge(['stop', args.id])
     case 'ax_brief':
       return { ok: true, text: brief() }
     case 'ax_init': {

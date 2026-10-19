@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 #
 # AI 협업 시나리오 — 여러 에이전트가 같은 기능을 동시에 만들 때
-# axMap 이 실제로 중재하는지, 그것이 그래프에 보이는지 확인한다.
+# axMap 이 실제로 중재하는지, 그 결과를 CLI로 확인할 수 있는지 확인한다.
 #
 #   bash demo/collab.sh          시나리오 구성 + 검증
-#   bash demo/collab.sh --keep   구성만 하고 뷰어로 보게 남겨둔다
+#   bash demo/collab.sh --keep   구성한 저장소를 직접 확인한다
 #
 # demo/chaos.sh 와 다른 점: 저기는 무작위로 두들겨 불변식을 깨려 하고,
 # 여기는 **사람이 이해할 수 있는 한 편의 이야기**를 만든다.
-# 아침에 뷰어를 열면 이 상황이 그대로 화면에 있다.
 #
 set -u
 
@@ -157,19 +156,6 @@ else
   printf '%s   실패 항목 있음%s\n' "$R$B" "$N"
 fi
 
-cat <<EOS
-
-${DIM}이 상황을 화면에서 보려면:${N}
-  node app/server.mjs "$LAB" 7777
-  → 감시 탭
-
-  기대 화면
-    src/core        초록  장효준 (사람) 작업 중
-    src/api/auth    보라  claude-api (AI)
-    src/ui/login    보라  claude-ui (AI)
-    src/jobs        하늘  nightly-bot (백그라운드)
-    src/api/user    노랑  김팀원 (선점만, 아직 안 건드림)
-    src/ui/home     빨강  선언 밖 수정 ⚠
-EOS
+printf '\n상태 확인: cd "%s" && node "%s/bin/axmap.mjs" status\n' "$LAB" "$PROJ"
 
 exit "$FAIL"

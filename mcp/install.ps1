@@ -142,7 +142,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Source 'bin\axmap.mjs'))) {
   $inner = Join-Path $Source 'axmap'
   if (Test-Path -LiteralPath (Join-Path $inner 'bin\axmap.mjs')) { $Source = (Resolve-Path -LiteralPath $inner).Path }
 }
-foreach ($need in @('bin\axmap.mjs', 'mcp\server.mjs', 'src\protocol.mjs', 'tools\mcp-register.mjs', 'app\lib\agentcli.mjs', 'package.json')) {
+foreach ($need in @('bin\axmap.mjs', 'mcp\server.mjs', 'src\protocol.mjs', 'tools\mcp-register.mjs', 'src\agentcli.mjs', 'package.json')) {
   if (-not (Test-Path -LiteralPath (Join-Path $Source $need))) {
     Fail @"
 axMap 원본이 온전하지 않습니다. 없는 파일: $need
@@ -198,8 +198,8 @@ Say ''
 Say "복사합니다 -> $Dest"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 
-# desktop\ 은 뺀다. Electron 껍데기라 MCP 에 필요 없고 node_modules 가 수백 MB 다.
-foreach ($item in @('bin', 'src', 'mcp', 'tools', 'app', 'package.json', 'LICENSE')) {
+# Copy the CLI, MCP and their shared runtime sources.
+foreach ($item in @('bin', 'src', 'mcp', 'tools', 'package.json', 'LICENSE')) {
   $from = Join-Path $Source $item
   $to   = Join-Path $Dest $item
   if (-not (Test-Path -LiteralPath $from)) { Hm "$item 없음 — 건너뜁니다"; continue }

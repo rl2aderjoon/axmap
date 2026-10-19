@@ -1,6 +1,91 @@
-# 열린 세션 연결 실험
+# 로컬 세션 연결과 자동 소통
 
-현재 상태는 **개발 중인 프로토타입이며 실제 LLM을 사용한 PTY 연결 검증은 남아 있다.**
+## 1.4.0 관리형 연결
+
+사용자가 `axmap bridge serve codex` 또는 `axmap bridge serve agy`로 명시적으로 시작한
+CLI를 로컬 인증 파이프로 연결한다. Codex는 App Server의 thread/turn, agy는 지속적인
+stream-json 입력을 사용한다. 매 요청마다 프로세스를 만들거나 대화 기록 전체를 복사하지 않는다.
+이미 열린 일반 TUI에 나중에 붙는 기능과는 다르며, 아래 PTY·agentapi 실험을 대신 성공으로 표시하지 않는다.
+
+같은 Git repo의 터미널 두 곳에서 실행한다. 각 명령은 새 관리형 세션을 만들고 UUID를 표시한다.
+기존 사용자 설정·인증을 사용하며 전역 훅을 추가하지 않는다. Codex는 읽기 전용 sandbox와
+on-request 승인 정책을 사용한다. agy에는 권한 생략 플래그를 전달하지 않는다.
+
+```text
+axmap bridge serve codex --role "구현 검토 담당"
+axmap bridge serve agy --role "리뷰 담당" --model gemini-3.8-flash-low
+```
+
+모델 이름은 `agy models`에서 현재 계정에 제공되는 것을 선택한다. 세 번째 터미널에서
+`axmap bridge sessions`로 UUID를 확인하고 작업을 stdin으로 전달한다.
+
+```powershell
+'변경 검토 방법을 합의하고 합의가 끝나면 종료하세요.' | axmap bridge chat --left <Codex-UUID> --right <agy-UUID>
+```
+
+MCP에서는 `ax_sessions` → `ax_chat(left, right, prompt)` → `ax_dialogue(id)`를 사용한다.
+`ax_chat`은 백그라운드 접수 ID를 반환하며 호출한 MCP 클라이언트가 기다리도록 붙잡지 않는다.
+`ax_dispatch`와 `ax_result`는 한 번의 작업에도 사용할 수 있다. 세션 시작은 사용자 CLI 명령이며,
+MCP 메시지를 받아 임의로 새로운 모델 프로세스를 실행하지 않는다.
+
+## 비용·종료·사용자 입력
+
+- 기본 대화 한도는 최대 4회 모델 실행, 처리 토큰 50000, 메시지 2000자다. `--max-turns`,
+  `--max-tokens`, `--max-message-chars` 또는 MCP 인수로 바꿀 수 있다. 상주 세션은 기본 누적
+  100000 처리 토큰에서 다음 요청을 거절한다 (`serve --max-tokens`로 변경).
+- 모델은 짧은 `message`와 `done` JSON을 반환한다. `done:true`는 해당 모델의 완료 보고이며
+  파일 변경·테스트 성공의 독립적인 증명은 아니다. 별도 검증이 필요한 작업은 수락 조건에 명시한다.
+- 대기·결과 조회·빈 큐 확인은 모델을 부르지 않는다. 현재 메시지만 상대에게 전달하고
+  전체 대화·코드를 매번 붙이지 않는다. 큰 결과는 파일 경로와 요약으로 참조하도록 요청한다.
+- 누적 토큰 차이와 직전 동일 세션의 실행 비용을 확인해 다음 요청을 시작한다. 첫 요청이나
+  더 비싼 후속 요청은 예산을 초과할 수 있다. 엄격한 생성 토큰 상한이나 비용 보장은 아니다.
+- `totalTokens`는 캐시 입력을 포함한 처리량이며 `cachedInputTokens`는 입력의 부분집합이다.
+  `reasoningTokens`도 출력의 부분집합이다. agy의 별도 캐시 카운터를 정규화하고 원래
+  `providerTotalTokens`도 보존한다. 모델별 가격을 섞어 금액으로 추정하지 않는다.
+- 측정 불가·카운터 감소는 해당 요청의 `usage:null`로 표시하고 자동 중계를 멈춘다.
+  메시지 형식·길이 오류나 전송 불명 상태도 모델에게 고쳐 달라고 반복 호출하지 않는다.
+- Codex 실행 승인은 `awaiting_user`와 명령 내용을 표시한다. 사용자가
+  `bridge answer --to <세션> --request <승인ID> --decision accept|decline|cancel`로 이번 요청을
+  결정한다. 지원하지 않는 사용자 입력은 실패로 반환하며 권한을 자동 승인하지 않는다.
+  agy headless에서 필요한 승인이 해결되지 않으면 해당 실행은 실패할 수 있다.
+- `ax_chat_stop` / `bridge stop <대화ID>`는 추가 중계를 멈춘다. 이미 제출된 모델 요청은
+  계속 실행될 수 있다. CLI 호스트 종료는 해당 터미널에서 Ctrl+C로 수행한다.
+  `stopping` 동안 이미 보낸 요청의 결과를 기다려 사용량을 기록한다. `usagePending:true`와
+  `usage:null`은 아직 전체 비용을 확인하지 못한 상태이며 `knownUsage`는 확인된 부분만 나타낸다.
+- 대화 중인 세션은 다른 대화·직접 요청으로부터 예약된다. 컨트롤러가 비정상 종료해 남은
+  예약은 자동으로 빼앗지 않는다. 소유 프로세스 종료를 확인한 뒤 새 관리형 세션을 시작한다.
+
+세션·요청·대화·토큰 기록과 백그라운드 로그는 로컬 `~/.axmap/bridge`에 저장한다.
+인증 토큰은 세션 공개 목록에 내보내지 않으며 Git으로 공유하지 않는다.
+
+## 2026-10-20 Windows 실제 검증
+
+Windows, Node.js, Codex CLI 0.163.0 및 agy 1.4.2에서 별도 임시 Git repo를 사용했다.
+Node.js는 v24.14.0, 모델은 Codex `gpt-6.1-sol` 및 agy `gemini-3.8-flash-low`였다.
+관리형 세션을 한 번씩 시작한 후 사용자 중간 입력 없이 요청 → 질문 → 회신 → 완료를
+자동 중계했다. 처음 Codex에만 알려준 검증 코드를 Codex가 후속 실행에서 기억했고,
+agy가 계산 결과와 나중에 받은 코드를 회신했다. 두 CLI의 프로세스와 대화 ID는 유지됐다.
+
+| 검증 | 모델 실행 | 입력 | 그중 캐시 | 출력 | 총 처리 |
+|---|---:|---:|---:|---:|---:|
+| CLI 자동 왕복·문맥 유지 | 4 | 67461 | 33792 | 367 | 67828 |
+| MCP 백그라운드 접수·회신 | 2 | 34736 | 20608 | 26 | 34762 |
+| 두 검증 합계 | 6 | 102197 | 54400 | 393 | 102590 |
+
+추론 토큰은 첫 검증 출력 중 127이며 합계에 다시 더하지 않는다. 짧은 메시지라도 CLI의
+기본 지침·도구·세션 문맥이 입력 비용을 차지한다. 이 수치를 메시지 본문만의 비용이나
+다른 계정·모델의 예상 비용으로 일반화하지 않는다. 제한된 대화와 불필요한 확인 응답 생략을
+권장하며, 실제 사용량을 확인하고 한도를 정한다. 가짜 provider 회귀 검사는 인증·경계·누적 차이·
+대기 중 추가 호출 방지·사용자 승인·한도 중단을 별도로 검사한다.
+
+원시 토큰 카운터와 메시지별 증거: [검증 기록](validation/session-dialogue-20261020.json).
+
+공식 프로토콜: [Codex App Server](https://learn.chatgpt.com/docs/app-server),
+[agy headless / stream-json](https://www.antigravity.google/docs/cli/headless/).
+
+## 기존 PTY·agentapi 실험 기록
+
+아래 경로는 **개발 중인 프로토타입이며 실제 LLM을 사용한 PTY 연결 검증은 남아 있다.**
 아래 agentapi 실패 경로는 `bridge install --experimental`로만 설치한다.
 새 PTY 경로는 `axmap run agy|codex`로 사용자가 직접 CLI를 열며, setup과 run이
 전용 연결 훅을 병합한다. 새 세션이나 headless 호출로 연결 실패를 대신하지 않는다.

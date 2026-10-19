@@ -69,7 +69,8 @@ function transcript(session) {
 function publicSession(s) {
   return { id: s.id, provider: s.provider, workspaces: s.workspaces, model: s.model,
     transport: s.transport || 'agentapi', state: s.state,
-    registeredAt: s.registeredAt, event: s.event, fullyIdle: s.fullyIdle }
+    registeredAt: s.registeredAt, event: s.event, fullyIdle: s.fullyIdle,
+    role: s.role, usage: s.usage, usageKnown: s.usageKnown, maxTokens: s.maxTokens, pendingApproval: s.pendingApproval }
 }
 export function sessions(cwd) {
   const dir = path.join(bridgeHome(), 'sessions')
@@ -81,7 +82,7 @@ export function sessions(cwd) {
 function sessionFor(id, cwd) {
   const s = readJSON(file('sessions', id))
   if (!s.repos.includes(repoKey(cwd))) throw new Error('이 세션은 현재 작업 저장소에 등록되지 않았습니다.')
-  if (s.provider !== 'agy' && s.transport !== 'pty') throw new Error('아직 지원하지 않는 수신 세션입니다.')
+  if (s.provider !== 'agy' && !['pty', 'stdio'].includes(s.transport)) throw new Error('아직 지원하지 않는 수신 세션입니다.')
   return s
 }
 
@@ -112,7 +113,7 @@ export function requestResult(id, cwd) {
   if (request.repo !== repoKey(cwd)) throw new Error('이 요청은 현재 작업 저장소의 요청이 아닙니다.')
   if (!['submitted', 'unknown'].includes(request.state)) return request
   const s = sessionFor(request.to, cwd)
-  if (s.transport === 'pty') {
+  if (['pty', 'stdio'].includes(s.transport)) {
     try { Object.assign(request, terminalRPC(s.id, { action: 'result', id })) }
     catch (e) { request.state = 'unknown'; request.error = e.message }
     writeJSON(target, request)
@@ -138,12 +139,20 @@ export function requestResult(id, cwd) {
   return request
 }
 
-export function dispatchRequest({ to, prompt, cwd, from = 'axmap' }) {
+export function sessionLeasePath(id) {
+  if (!UUID.test(id || '')) throw new Error('세션 ID는 UUID여야 합니다.')
+  return path.join(bridgeHome(), 'dialogues', `session-${id}.lock`)
+}
+
+export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = null }) {
   if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > 32768) throw new Error('요청 본문은 1~32768바이트여야 합니다.')
   const s = sessionFor(to, cwd)
+  const lease = sessionLeasePath(to)
+  if (fs.existsSync(lease) && readJSON(lease).dialogueId !== dialogueId) throw new Error('이 세션은 자동 대화가 사용 중입니다. 해당 대화가 끝난 뒤 요청하세요.')
   const dir = path.join(bridgeHome(), 'requests')
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   return withRepoLock(path.join(dir, `${to}.lock`), () => {
+    if (fs.existsSync(lease) && readJSON(lease).dialogueId !== dialogueId) throw new Error('이 세션은 자동 대화가 사용 중입니다.')
     for (const n of fs.readdirSync(dir).filter(n => n.endsWith('.json'))) {
       const previous = readJSON(path.join(dir, n))
       if (previous.to !== to || !['sending', 'submitted', 'unknown'].includes(previous.state)) continue
@@ -151,16 +160,16 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap' }) {
       if (['sending', 'submitted', 'unknown'].includes(latest.state)) throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`)
     }
     // No fallback to `agy -p` or --conversation: both would start a separate process.
-    if (s.transport !== 'pty') {
+    if (!['pty', 'stdio'].includes(s.transport)) {
       runAPI(s, ['get-conversation-metadata', to])
       if (!s.fullyIdle || s.event !== 'Stop') throw new Error('상대 세션의 대기 상태를 아직 확인하지 못했습니다. 작업 종료 훅을 기다리세요.')
     }
     const request = { id: randomUUID(), to, from, repo: repoKey(cwd), prompt,
-      createdAt: new Date().toISOString(), baseline: s.transport === 'pty' ? null : transcript(s).length, state: 'sending' }
+      createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport) ? null : transcript(s).length, state: 'sending' }
     const target = file('requests', request.id)
     writeJSON(target, request)
     try {
-      request.receipt = s.transport === 'pty'
+      request.receipt = ['pty', 'stdio'].includes(s.transport)
         ? terminalRPC(to, { action: 'submit', request })
         : runAPI(s, ['send-message', to, `[axMap request ${request.id}]\n요청자: ${from}\n${prompt}`])
       request.state = 'submitted'

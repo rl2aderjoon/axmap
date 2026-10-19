@@ -262,7 +262,7 @@ test('게이트가 빨가면 찬성표가 아무리 많아도 막힌다 - I8', (
 })
 
 test('안 돌린 게이트는 통과가 아니다 - fail-closed', () => {
-  const r = checkMerge({ proposal: proposal(['app/lib/flow.mjs']), votes: [vote('agent-b', 'approve')], gates: {} })
+  const r = checkMerge({ proposal: proposal(['src/service.mjs']), votes: [vote('agent-b', 'approve')], gates: {} })
   assert.equal(r.ok, false)
   assert.equal(
     r.blocks.filter((b) => b.kind === 'missing-gate').length,
@@ -290,7 +290,7 @@ test('반대표 하나가 정족수를 이긴다 - 발견은 다수결의 대상
 
 test('자기 표는 세지 않는다 - 시빌의 가장 싼 형태', () => {
   const mine = checkMerge({
-    proposal: proposal(['app/lib/flow.mjs'], { agent: 'agent-a' }),
+    proposal: proposal(['src/service.mjs'], { agent: 'agent-a' }),
     votes: [vote('agent-a', 'approve')],
     gates: GREEN,
   })
@@ -298,7 +298,7 @@ test('자기 표는 세지 않는다 - 시빌의 가장 싼 형태', () => {
   assert.ok(mine.blocks.some((b) => b.kind === 'quorum' && b.have === 0))
 
   const other = checkMerge({
-    proposal: proposal(['app/lib/flow.mjs'], { agent: 'agent-a' }),
+    proposal: proposal(['src/service.mjs'], { agent: 'agent-a' }),
     votes: [vote('agent-a', 'approve'), vote('agent-b', 'approve')],
     gates: GREEN,
   })
@@ -308,14 +308,14 @@ test('자기 표는 세지 않는다 - 시빌의 가장 싼 형태', () => {
 
 test('정족수는 고정값이 아니라 위험 등급별이다', () => {
   assert.equal(requiredApprovals(['src/protocol.mjs']), 3, '심장부')
-  assert.equal(requiredApprovals(['app/lib/flow.mjs']), 1, '보통')
-  assert.equal(requiredApprovals(['docs/BENCH.md']), 0, '문서는 게이트만')
+  assert.equal(requiredApprovals(['src/service.mjs']), 1, '보통')
+  assert.equal(requiredApprovals(['docs/INSTALL.md']), 0, '문서는 게이트만')
 })
 
 test('여러 등급에 걸치면 가장 높은 쪽을 따른다', () => {
   // docs/ 는 0 이지만 docs/SPEC.md 는 3 이다. 규격이 코드보다 먼저이므로.
   assert.equal(requiredApprovals(['docs/SPEC.md']), 3)
-  assert.equal(requiredApprovals(['docs/BENCH.md', 'src/protocol.mjs']), 3)
+  assert.equal(requiredApprovals(['docs/INSTALL.md', 'src/protocol.mjs']), 3)
 })
 
 test('빈 제안을 0표로 통과시키지 않는다', () => {
