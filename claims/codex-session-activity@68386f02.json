@@ -1,0 +1,17 @@
+{
+  "agent": "codex-session-activity",
+  "task": "Show live session activity in terminal",
+  "intent": null,
+  "actor": null,
+  "session": "a1737499-8b94-4d6d-92b8-f1c38ea1af64",
+  "since": "2026-10-20T02:45:00.143Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/SESSION-BRIDGE.md",
+    "mcp/server.mjs",
+    "src/session-status.mjs",
+    "src/terminal-bridge.mjs",
+    "test/session-status.test.mjs",
+    "tools/bridge.mjs"
+  ]
+}
