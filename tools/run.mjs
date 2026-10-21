@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { startTerminal, sendTerminal, installTerminalHooks, installTerminalRuntime } from '../src/terminal-bridge.mjs'
+import { registerExternalHook } from '../src/external-console.mjs'
 
 const [command, ...args] = process.argv.slice(2)
 try {
@@ -13,9 +14,12 @@ try {
   } else if (command === 'rpc') {
     console.log(JSON.stringify(await sendTerminal(args[0], JSON.parse(fs.readFileSync(0, 'utf8')))))
   } else if (command === 'hook') {
-    // Installed once, harmless for sessions not launched through axMap.
+    const input = JSON.parse(fs.readFileSync(0, 'utf8'))
     if (process.env.AXMAP_TERMINAL_SESSION && process.env.AXMAP_TERMINAL_TOKEN) {
-      await sendTerminal(process.env.AXMAP_TERMINAL_SESSION, { action: 'hook', event: args[0], input: JSON.parse(fs.readFileSync(0, 'utf8')) }, process.env.AXMAP_TERMINAL_TOKEN)
+      await sendTerminal(process.env.AXMAP_TERMINAL_SESSION, { action: 'hook', event: args[0], input }, process.env.AXMAP_TERMINAL_TOKEN)
+    } else if (process.platform === 'win32' && input.conversationId) {
+      try { registerExternalHook(input, args[0]) }
+      catch (e) { console.error(`axMap 독립 콘솔: ${e.message}`) }
     }
     console.log('{}')
   } else if (command === '--help' || !command) {

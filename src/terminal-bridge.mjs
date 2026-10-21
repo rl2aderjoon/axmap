@@ -18,7 +18,8 @@ const sessionFile = id => {
 const pipeFor = id => process.platform === 'win32'
   ? `\\\\.\\pipe\\axmap-${id}` : path.join(bridgeHome(), `${id}.sock`)
 
-export function sendTerminal(id, message, token = null) {
+export function sendTerminal(id, message, token = null, { timeoutMs = 10000 } = {}) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('양의 응답 시간 한도가 필요합니다.')
   const s = readJSON(sessionFile(id))
   if (!['pty', 'stdio'].includes(s.transport)) throw new Error('로컬 관리형 세션이 아닙니다.')
   return new Promise((resolve, reject) => {
@@ -26,7 +27,7 @@ export function sendTerminal(id, message, token = null) {
     socket.setEncoding('utf8')
     let buffer = ''
     const fail = e => { socket.destroy(); reject(e) }
-    socket.setTimeout(10000, () => fail(new Error('로컬 세션 응답 시간 초과. 자동 재전송하지 마세요.')))
+    socket.setTimeout(timeoutMs, () => fail(new Error('로컬 세션 응답 시간 초과. 자동 재전송하지 마세요.')))
     socket.on('error', fail)
     socket.on('connect', () => socket.write(JSON.stringify({ ...message, token: token || s.token }) + '\n'))
     socket.on('data', chunk => {

@@ -392,7 +392,7 @@ const TOOLS = [
   },
   {
     name: 'ax_dispatch',
-    description: '사용자가 허용한 작업을 연결된 상대 세션에 전달한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. Codex/agy 관리형 stdio, 실험용 PTY/agentapi 연결을 지원한다.',
+    description: '사용자가 허용한 작업을 연결된 상대 세션에 전달한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. Codex/agy 관리형 stdio, 별도로 실행한 Windows agy console, 실험용 PTY/agentapi 연결을 지원한다.',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
@@ -400,7 +400,7 @@ const TOOLS = [
   },
   {
     name: 'ax_result',
-    description: '작업 요청의 제출/완료/불명 상태, 결과와 측정 사용량을 확인한다. 관리형 세션은 CLI의 구조화된 실행 완료 이벤트, 실험용 터미널은 해당 요청의 종료 훅으로 판정한다.',
+    description: '작업 요청의 제출/완료/불명 상태, 결과와 측정 사용량을 확인한다. 관리형 세션은 구조화된 완료 이벤트, PTY는 종료 훅, 독립 Windows console은 요청 UUID가 있는 대화 기록과 현재 빈 입력창의 대기 상태로 판정한다.',
     inputSchema: { type: 'object', properties: {
       id: { type: 'string', description: 'ax_dispatch가 반환한 요청 UUID' },
     }, required: ['id'] },

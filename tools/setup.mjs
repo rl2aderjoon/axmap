@@ -257,7 +257,7 @@ if (!has('--no-register')) {
   else {
     const hookRunner = path.join(DEST, 'tools', 'run.mjs')
     const r = spawnSync(process.execPath, [hookRunner, 'install-hooks'], { encoding: 'utf8', windowsHide: true })
-    if (r.status === 0) ok('세션 연결', 'axmap run agy로 여는 CLI가 자동 연결됩니다')
+    if (r.status === 0) ok('세션 연결', 'Windows에서 직접 여는 agy와 axmap run CLI가 자동 연결됩니다')
     else no('세션 연결', r.stderr?.trim() || '연결 훅 등록 실패')
   }
 }

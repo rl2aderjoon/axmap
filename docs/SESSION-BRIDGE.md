@@ -1,5 +1,44 @@
 # 로컬 세션 연결과 자동 소통
 
+## Windows에서 따로 실행한 agy 연결
+
+1.5.0부터 지원한다.
+
+일반 CMD/PowerShell에서 `agy --dangerously-skip-permissions`처럼 직접 실행한 대화창도
+연결할 수 있다. axMap의 설치된 터미널 훅은 이제 관리형 환경변수가 없는 Windows agy도
+부모 프로세스 PID·시작 시각·대화 UUID·작업 저장소로 자동 등록한다. 권한 옵션은 사용자가
+선택한 그대로 사용한다. Named Pipe나 axMap 소유 PTY는 이 연결에 필요하지 않다.
+
+이미 열려 있어 새 훅이 적용되지 않은 창은 **대상 저장소에서** 다음을 한 번 실행한다.
+
+```powershell
+cd C:\work\my-repo
+axmap bridge attach --pid 35144
+axmap bridge sessions
+axmap bridge status
+```
+
+PID는 예시이며 현재 실행 중인 해당 `agy.exe`의 PID를 사용한다. attach는 현재 저장소에
+명시적으로 연결하므로 실제 창의 작업 저장소에서 실행한다. `attach`가 반환한 세션 UUID를
+`ax_dispatch(to, prompt)` 또는 `bridge send --to <UUID>`에 사용한다. 모델 프로세스를
+새로 만들거나 기존 창을 재시작하지 않는다. 이 기능은 Windows 콘솔 API를 사용한다.
+
+전송 직전에 PID의 시작 시각과 화면을 다시 확인하며, 마지막 입력창이 비어 있고
+`? for shortcuts` 대기 표시가 있을 때만 전달한다. 입력 중·작업 중·지원하지 않는 화면은
+거절한다. 여러 줄/한글은 bracketed paste로 전달한다. 화면이 바뀌면 입력하지 않으며
+전송 오류는 `unknown`으로 기록하고 자동 재전송하지 않는다. CLI UI가 바뀌면 이 화면
+검사를 갱신해야 할 수 있다. 전송 직후 사용자가 동시에 타이핑하는 경쟁까지 잠그지는 못한다.
+
+결과는 고유 요청 UUID가 있는 대화 기록과 현재 콘솔의 대기 상태를 함께 확인한다.
+기존 창에서 훅을 못 받으면 요청 이후 갱신된 로컬 transcript 중 해당 UUID가 유일하게
+발견된 기록만 연결한다(32MiB 이하). 나중에 다른 사용자 입력이 있으면 `superseded`로
+판정한다. 토큰 사용량을 측정하지 않으므로 예산을 검사하는 `ax_chat` 자동 대화는 계속
+관리형 stdio 세션만 지원한다. macOS/Linux의 독립 터미널 연결은 아직 지원하지 않는다.
+
+2026-10-21 실제 작업 저장소의 기존 PID 35144에서 재시작 없이 메시지를 보내
+`AXMAP_EXTERNAL_CONSOLE_OK_35144` 응답과 `completed` 결과를 확인했다.
+실제 검증 요청 UUID: `54fd993a-a61f-4c65-bcf7-b9daccdaf869`.
+
 ## 1.4.0 관리형 연결
 
 사용자가 `axmap bridge serve codex` 또는 `axmap bridge serve agy`로 명시적으로 시작한
@@ -27,6 +66,19 @@ MCP에서는 `ax_sessions` → `ax_chat(left, right, prompt)` → `ax_dialogue(i
 `ax_chat`은 백그라운드 접수 ID를 반환하며 호출한 MCP 클라이언트가 기다리도록 붙잡지 않는다.
 `ax_dispatch`와 `ax_result`는 한 번의 작업에도 사용할 수 있다. 세션 시작은 사용자 CLI 명령이며,
 MCP 메시지를 받아 임의로 새로운 모델 프로세스를 실행하지 않는다.
+
+### 명령으로 활성 상태 확인 (1.5.0)
+
+같은 저장소에서 `axmap bridge status`를 실행하면 세션별 연결 여부, 시작·작업 중·대기·승인 대기·
+종료 상태, 역할과 누적 처리 토큰을 표시한다. `axmap bridge status --json`은 같은 결과를 JSON으로 반환한다.
+소스에서 확인할 때는 `node bin/axmap.mjs bridge status`를 사용한다.
+
+관리형 stdio와 실험용 PTY는 인증된 로컬 파이프에 상태만 조회한다. 세션당 응답 대기는 1초이며
+동시에 조회한다. 모델 실행·추가 토큰 소비나 작업 전달 없이 확인한다. 응답하지 않는 세션은
+`연결 확인 불가 · 상태 미확인`으로 표시하며 마지막 기록을 현재 활성 상태나 작업 완료로 간주하지 않는다.
+이전 agentapi 등록은 연결 확인을 지원하지 않아 `확인 미지원`으로 표시한다. `sessions`와 MCP의
+`ax_sessions`는 기존 등록 목록 조회를 유지한다. `connected`는 로컬 호스트의 응답이며 모델 서비스의
+정상 동작을 보장하지 않는다. 이 명령은 현재 저장소에 등록된 세션만 조회한다.
 
 ## 비용·종료·사용자 입력
 
@@ -136,7 +188,8 @@ MCP에는 `ax_sessions`, `ax_dispatch`, `ax_result`가 추가된다.
 사용자가 `axmap run agy|codex`로 직접 여는 터미널을 axMap이 관리하는 코드를 추가했다.
 `src/terminal-bridge.mjs`가 PTY와 인증된 로컬 파이프를 유지한다. 입력 중에는 전송을 거부하고
 해당 요청의 종료 훅을 확인해 결과를 돌려준다. `--cwd`로 작업 repo를 지정할 수 있다.
-일반 CLI로 이미 열린 프로세스를 나중에 임의 연결하는 기능은 구현하지 않았다.
+이 PTY 경로 자체는 일반 CLI로 이미 열린 프로세스를 나중에 연결하지 않는다.
+Windows agy의 기존 창은 위의 별도 console 연결 경로를 사용한다.
 
 추가 의존성은 사용자가 승인했다. npm의 `node-pty` 모듈은
 `npm:@lydell/node-pty@1.1.0`으로 고정했다. 지원 플랫폼의 prebuilt 바이너리가 따라오며,

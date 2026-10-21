@@ -6,6 +6,8 @@ import { dispatchRequest, installHooks, registerHook, requestResult, sessions, u
 import { startManagedSession } from '../src/managed-session.mjs'
 import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue } from '../src/session-dialogue.mjs'
 import { sendTerminal } from '../src/terminal-bridge.mjs'
+import { sessionStatus, formatSessionStatus } from '../src/session-status.mjs'
+import { attachConsole } from '../src/external-console.mjs'
 
 const args = process.argv.slice(2)
 const [command] = args
@@ -13,6 +15,7 @@ const option = (name) => { const i = args.indexOf(`--${name}`); return i < 0 ? u
 const output = (value) => console.log(JSON.stringify(value, null, 2))
 try {
   switch (command) {
+    case 'attach': output(attachConsole({ pid: Number(option('pid')), cwd: process.cwd() })); break
     case 'serve': {
       const provider = args[1]
       if (!['codex', 'agy'].includes(provider)) throw new Error('axmap bridge serve codex|agy를 사용하세요.')
@@ -54,6 +57,12 @@ try {
       break
     }
     case 'sessions': output(sessions(process.cwd())); break
+    case 'status': {
+      const listed = await sessionStatus()
+      if (args.includes('--json')) output(listed)
+      else console.log(formatSessionStatus(listed))
+      break
+    }
     case 'send': {
       const r = dispatchRequest({ to: option('to'), prompt: fs.readFileSync(0, 'utf8'), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap' })
       output(r)
@@ -76,6 +85,8 @@ axmap bridge stop <대화 UUID>                        추가 중계 중단 (이
 axmap bridge install --experimental --executable <agy 절대 경로>   연결 훅 실험
 axmap bridge uninstall                             추가한 연결 훅 해제
 axmap bridge sessions                              이 repo에 연결된 세션
+axmap bridge attach --pid <PID>                    이미 실행한 Windows agy 콘솔을 현재 repo에 연결
+axmap bridge status [--json]                        로컬 연결·작업·승인 대기·종료 상태 조회 (모델 호출 없음)
 axmap bridge send --to <세션 UUID>                  본문은 stdin. 기존 세션에 전달
 axmap bridge result <요청 UUID>                     제출/완료/불명 상태와 결과
 관리형 stdio: Codex App Server / agy stream-json. PTY와 agentapi는 별도 실험 경로입니다.`)

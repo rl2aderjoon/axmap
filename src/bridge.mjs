@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { withRepoLock } from './repolock.mjs'
+import { submitConsole, checkConsole, validateConsolePrompt, findConsoleTranscript, externalStatus } from './external-console.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -59,7 +60,7 @@ function runAPI(session, args) {
   return null
 }
 function transcript(session) {
-  const expected = path.join(agyHome(), 'brain', session.id, '.system_generated', 'logs', 'transcript.jsonl')
+  const expected = path.join(agyHome(), 'brain', session.conversationId || session.id, '.system_generated', 'logs', 'transcript.jsonl')
   if (session.transcript !== expected) throw new Error('등록된 대화 기록 경로가 올바르지 않습니다.')
   const lines = fs.readFileSync(expected, 'utf8').split('\n')
   // A trailing incomplete record may be in flight; malformed complete records fail.
@@ -68,7 +69,7 @@ function transcript(session) {
 }
 function publicSession(s) {
   return { id: s.id, provider: s.provider, workspaces: s.workspaces, model: s.model,
-    transport: s.transport || 'agentapi', state: s.state,
+    transport: s.transport || 'agentapi', state: s.state, pid: s.pid,
     registeredAt: s.registeredAt, event: s.event, fullyIdle: s.fullyIdle,
     role: s.role, usage: s.usage, usageKnown: s.usageKnown, maxTokens: s.maxTokens, pendingApproval: s.pendingApproval }
 }
@@ -112,12 +113,22 @@ export function requestResult(id, cwd) {
   const request = readJSON(target)
   if (request.repo !== repoKey(cwd)) throw new Error('이 요청은 현재 작업 저장소의 요청이 아닙니다.')
   if (!['submitted', 'unknown'].includes(request.state)) return request
-  const s = sessionFor(request.to, cwd)
+  let s = sessionFor(request.to, cwd)
   if (['pty', 'stdio'].includes(s.transport)) {
     try { Object.assign(request, terminalRPC(s.id, { action: 'result', id })) }
     catch (e) { request.state = 'unknown'; request.error = e.message }
     writeJSON(target, request)
     return request
+  }
+  if (s.transport === 'console') {
+    try { s.fullyIdle = externalStatus(s).state === 'idle' }
+    catch (e) {
+      request.state = 'unknown'; request.error = e.message
+      writeJSON(target, request)
+      return request
+    }
+    s = findConsoleTranscript(s, request)
+    if (!s.transcript) return request
   }
   const entries = transcript(s)
   const marker = `[axMap request ${id}]`
@@ -127,12 +138,12 @@ export function requestResult(id, cwd) {
   if (tail.some(e => e.type === 'USER_INPUT')) {
     request.state = 'superseded'
     request.error = '다른 사용자 입력이 이어져 이 요청의 완료를 확정할 수 없습니다.'
-  } else if (s.event === 'Stop' && s.fullyIdle && s.registeredAt > request.createdAt) {
+  } else if (s.transport === 'console' ? s.fullyIdle : s.event === 'Stop' && s.fullyIdle && s.registeredAt > request.createdAt) {
     const answer = tail.filter(e => e.source === 'MODEL' && e.type === 'PLANNER_RESPONSE' && e.status === 'DONE').at(-1)
     if (answer) {
       request.state = 'completed'
       request.result = answer.content
-      request.completedAt = s.registeredAt
+      request.completedAt = s.transport === 'console' ? new Date().toISOString() : s.registeredAt
     }
   }
   if (['completed', 'superseded'].includes(request.state)) writeJSON(target, request)
@@ -160,16 +171,17 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
       if (['sending', 'submitted', 'unknown'].includes(latest.state)) throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`)
     }
     // No fallback to `agy -p` or --conversation: both would start a separate process.
-    if (!['pty', 'stdio'].includes(s.transport)) {
+    if (s.transport === 'console') { validateConsolePrompt(prompt, from); checkConsole(s) }
+    if (!['pty', 'stdio', 'console'].includes(s.transport)) {
       runAPI(s, ['get-conversation-metadata', to])
       if (!s.fullyIdle || s.event !== 'Stop') throw new Error('상대 세션의 대기 상태를 아직 확인하지 못했습니다. 작업 종료 훅을 기다리세요.')
     }
     const request = { id: randomUUID(), to, from, repo: repoKey(cwd), prompt,
-      createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport) ? null : transcript(s).length, state: 'sending' }
+      createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport) ? null : s.transcript ? transcript(s).length : 0, state: 'sending' }
     const target = file('requests', request.id)
     writeJSON(target, request)
     try {
-      request.receipt = ['pty', 'stdio'].includes(s.transport)
+      request.receipt = s.transport === 'console' ? submitConsole(s, request) : ['pty', 'stdio'].includes(s.transport)
         ? terminalRPC(to, { action: 'submit', request })
         : runAPI(s, ['send-message', to, `[axMap request ${request.id}]\n요청자: ${from}\n${prompt}`])
       request.state = 'submitted'

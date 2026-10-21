@@ -7,6 +7,9 @@ import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { sendTerminal, installTerminalRuntime } from '../src/terminal-bridge.mjs'
+import { attachConsole, consoleCall } from '../src/external-console.mjs'
+import { dispatchRequest, requestResult, sessions, bridgeHome, readJSON, writeJSON } from '../src/bridge.mjs'
+import { sessionStatus } from '../src/session-status.mjs'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -127,4 +130,103 @@ test('setup copy contains usable production PTY dependencies without source node
     const require = createRequire(path.join(dest, 'package.json'))
     assert.equal(typeof require('node-pty').spawn, 'function')
   } finally { fs.rmSync(dest, { recursive: true, force: true }) }
+})
+
+test('independent Windows console: automatic hook registration, attach, Unicode dispatch and transcript completion', { skip: process.platform !== 'win32', timeout: 45000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap-independent-'))
+  const saved = { AXMAP_STATE_DIR: process.env.AXMAP_STATE_DIR, AXMAP_AGY_HOME: process.env.AXMAP_AGY_HOME }
+  process.env.AXMAP_STATE_DIR = path.join(dir, 'state')
+  process.env.AXMAP_AGY_HOME = path.join(dir, 'agy-home')
+  spawnSync('git', ['init', '-q'], { cwd: dir })
+  // A real console process named agy.exe, launched directly by node-pty, with no
+  // axMap environment, listener, token or terminal wrapper.
+  const binary = path.join(dir, 'agy.exe')
+  try { fs.linkSync(process.execPath, binary) } catch { fs.copyFileSync(process.execPath, binary) }
+  const fixture = path.join(dir, 'independent.cjs')
+  const hookScript = path.join(ROOT, 'tools', 'run.mjs')
+  fs.writeFileSync(fixture, `
+    const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+    const cid='11111111-2222-4333-8444-555555555555';
+    const log=path.join(process.env.AXMAP_AGY_HOME,'brain',cid,'.system_generated/logs/transcript.jsonl');
+    fs.mkdirSync(path.dirname(log),{recursive:true});fs.writeFileSync(log,'');
+    const hook=cp.spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(hookScript)},'hook','Stop'],{
+      input:JSON.stringify({conversationId:cid,workspacePaths:[process.cwd()],transcriptPath:log,fullyIdle:true}),encoding:'utf8'});
+    if(hook.stderr) console.error(hook.stderr);
+    const rule='─'.repeat(50);let pending='';
+    const draw=()=>process.stdout.write('\\x1b[2J\\x1b[HREADY\\r\\n'+rule+'\\r\\n> '+pending+'\\r\\n'+rule+'\\r\\n? for shortcuts\\r\\n');
+    process.stdin.setRawMode(true);process.stdin.resume();draw();
+    process.stdin.on('data',data=>{
+      pending+=data.toString();
+      if(pending.includes('\\x15')) {pending='';draw();return;}
+      if(!pending.includes('\\r')) {draw();return;}
+      const prompt=pending.slice(0,pending.indexOf('\\r')).replace(/\\x1b\\[(?:200|201)~/g,'');pending='';
+      if(prompt==='EXIT') process.exit(0);
+      fs.appendFileSync(log,JSON.stringify({type:'USER_INPUT',content:prompt})+'\\n');
+      fs.appendFileSync(log,JSON.stringify({source:'MODEL',type:'PLANNER_RESPONSE',status:'DONE',content:'독립 응답: '+prompt.split('\\n').slice(2).join('\\n')})+'\\n');
+      draw();
+    });
+  `)
+  const hostScript = path.join(dir, 'host.mjs')
+  fs.writeFileSync(hostScript, `
+    import {createRequire} from 'node:module';import readline from 'node:readline';
+    const {spawn}=createRequire(${JSON.stringify(path.join(ROOT, 'package.json'))})('node-pty');
+    const env={...process.env};delete env.AXMAP_TERMINAL_SESSION;delete env.AXMAP_TERMINAL_TOKEN;
+    const term=spawn(${JSON.stringify(binary)},[${JSON.stringify(fixture)}],{cwd:${JSON.stringify(dir)},env,cols:100,rows:30,useConpty:true,useConptyDll:false});
+    console.log(JSON.stringify({pid:term.pid}));
+    term.onData(d=>console.log(JSON.stringify({data:d})));
+    const rl=readline.createInterface({input:process.stdin});rl.on('line',l=>term.write(JSON.parse(l).input));
+    term.onExit(e=>{try{term.kill()}catch{};rl.close();process.exit(e.exitCode||0)});
+  `)
+  let host, exited, pid, ready = false, errors = ''
+  try {
+    host = spawn(process.execPath, [hostScript], { cwd: dir, env: process.env, windowsHide: true })
+    exited = new Promise(resolve => host.once('exit', resolve))
+    let output = ''
+    host.stderr.on('data', d => { errors += d })
+    host.stdout.on('data', d => {
+      output += d
+      for (let end; (end = output.indexOf('\n')) >= 0;) {
+        const entry = JSON.parse(output.slice(0, end)); output = output.slice(end + 1)
+        if (entry.pid) pid = entry.pid
+        if (entry.data?.includes('READY')) ready = true
+      }
+    })
+    await until(() => ready)
+    const automatic = sessions(dir).find(s => s.transport === 'console')
+    assert.ok(automatic, errors)
+    assert.equal(automatic.pid, pid)
+    assert.equal(attachConsole({ pid, cwd: dir }).id, automatic.id)
+    const stateFile = path.join(bridgeHome(), 'sessions', `${automatic.id}.json`)
+    const state = readJSON(stateFile)
+    assert.throws(() => consoleCall(pid, 'snapshot', { startedAt: 'wrong-process-start' }), /identity changed/)
+    const other = path.join(dir, 'other'); fs.mkdirSync(other); spawnSync('git', ['init', '-q'], { cwd: other })
+    assert.throws(() => dispatchRequest({ to: automatic.id, prompt: 'wrong repo', cwd: other }), /현재 작업 저장소/)
+    assert.throws(() => dispatchRequest({ to: automatic.id, prompt: '\x1b[201~', cwd: dir }), /제어 문자/)
+    host.stdin.write(JSON.stringify({ input: 'draft' }) + '\n'); await wait(150)
+    assert.throws(() => dispatchRequest({ to: automatic.id, prompt: 'do not interrupt', cwd: dir }), /빈 입력창/)
+    host.stdin.write(JSON.stringify({ input: '\x15' }) + '\n'); await wait(150)
+    // Emulate a session launched before it knew about the installed hook.
+    delete state.transcript; delete state.conversationId; writeJSON(stateFile, state)
+    const prompt = '한글 "quote" & $literal\r\n두 번째 줄'
+    let request
+    try { request = dispatchRequest({ to: automatic.id, prompt, cwd: dir }) }
+    catch (e) { throw new Error(`${e.message}\n${JSON.stringify(consoleCall(pid))}`, { cause: e }) }
+    assert.equal(request.state, 'submitted')
+    const result = await until(() => { const r = requestResult(request.id, dir); return r.state === 'completed' && r })
+    assert.equal(result.result, '독립 응답: ' + prompt.replace(/\r\n/g, '\n'))
+    assert.equal((await sessionStatus(dir))[0].state, 'idle')
+    assert.equal(readJSON(stateFile).pid, pid)
+    assert.ok(!JSON.stringify(sessions(dir)).includes('startedAt'))
+    host.stdin.write(JSON.stringify({ input: 'EXIT\r' }) + '\n')
+    await exited
+    assert.equal((await sessionStatus(dir))[0].connection, 'unreachable')
+  } finally {
+    if (host && host.exitCode === null) {
+      host.stdin.write(JSON.stringify({ input: 'EXIT\r' }) + '\n')
+      const timer = setTimeout(() => host.kill(), 5000)
+      await exited; clearTimeout(timer)
+    }
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+  }
 })

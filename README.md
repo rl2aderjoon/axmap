@@ -25,6 +25,22 @@ Each Git repository's ledger is prepared on first use. Collaborators must share 
 
 Newest changes first.
 
+### 1.5.0
+
+<sub>October 21, 2026</sub>
+
+**Connect an existing Windows Antigravity conversation without restarting it.**
+
+- Interactive `agy` sessions launched directly register through the installed hooks. Use `axmap bridge attach --pid <PID>` from the target repository for an already open console.
+- `ax_dispatch` and `ax_result` preserve the existing process and conversation. Delivery requires an empty, idle input box; results match the request UUID in the transcript and the live console state.
+- `axmap bridge status [--json]` checks local connections without submitting model work.
+- Independent console connections currently support Windows agy only. Token-budgeted `ax_chat` still requires managed stdio sessions.
+
+Validated against an existing real agy console and 574 passing regression tests, including independent-console registration, Unicode delivery, input protection and process identity checks.
+[Connection guide →](docs/SESSION-BRIDGE.md)
+
+---
+
 ### 1.4.0
 
 <sub>October 20, 2026</sub>
