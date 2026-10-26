@@ -1,6 +1,6 @@
 # axMap 설치와 사용
 
-현재 소스 버전은 **1.5.0**이다. Node.js 20 이상과 Git이 필요하다. setup은 Windows에서는 PowerShell, macOS·Linux에서는 Bash를 사용한다. 연결할 AI CLI는 별도로 설치하고 인증을 마쳐 둔다.
+현재 소스 버전은 **1.6.0**이다. Node.js 20 이상과 Git이 필요하다. setup은 Windows에서는 PowerShell, macOS·Linux에서는 Bash를 사용한다. 연결할 AI CLI는 별도로 설치하고 인증을 마쳐 둔다.
 
 npm 패키지 이름은 **`axmap-cli`**, 설치 후 명령 이름은 **`axmap`**이다. `npx axmap`은 다른 패키지를 실행하므로 사용하지 않는다.
 

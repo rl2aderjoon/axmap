@@ -4,6 +4,8 @@
 git clone https://github.com/rl2aderjoon/axmap.git
 cd axmap
 npm install
+npm run typecheck
+npm run build
 node bin/axmap.mjs --version
 npm test
 ```
@@ -11,6 +13,8 @@ npm test
 Node 20+와 Git이 필요하다. 기본 브랜치는 `main`이다.
 터미널 연결 의존성은 npm 설치에 포함되며, 선점 CLI는 소스에서 직접 실행할 수 있다.
 PATH의 `axmap`은 설치본일 수 있으므로 소스 검증에는 `node bin/axmap.mjs`를 쓴다.
+로컬 세션 모듈은 `.mts`를 수정하고 `npm run build`로 `.mjs`를 갱신한다.
+`npm test`는 생성 파일이 최신인지도 확인한다. [TypeScript 개발 안내](TYPESCRIPT.md).
 
 ## 구성
 

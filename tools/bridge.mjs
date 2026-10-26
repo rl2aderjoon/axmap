@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import { resolveBin } from '../src/agentcli.mjs'
 import { codexInvocation } from './mcp-register.mjs'
-import { dispatchRequest, installHooks, registerHook, requestResult, sessions, uninstallHooks } from '../src/bridge.mjs'
+import { dispatchRequest, installHooks, registerHook, waitForRequest, sessions, uninstallHooks } from '../src/bridge.mjs'
 import { startManagedSession } from '../src/managed-session.mjs'
 import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue } from '../src/session-dialogue.mjs'
 import { sendTerminal } from '../src/terminal-bridge.mjs'
@@ -64,12 +64,15 @@ try {
       break
     }
     case 'send': {
+      const waitMs = Number(option('wait-ms') || 0)
+      if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 30000) throw new Error('wait-ms는 0~30000 정수여야 합니다.')
       const r = dispatchRequest({ to: option('to'), prompt: fs.readFileSync(0, 'utf8'), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap' })
-      output(r)
-      if (r.state === 'unknown') process.exitCode = 2
+      const result = waitMs && r.state === 'submitted' ? await waitForRequest(r.id, process.cwd(), waitMs) : r
+      output(result)
+      if (result.state === 'unknown') process.exitCode = 2
       break
     }
-    case 'result': output(requestResult(args[1], process.cwd())); break
+    case 'result': output(await waitForRequest(args[1], process.cwd(), Number(option('wait-ms') || 0))); break
     case undefined:
     case '--help':
       console.log(`axMap 로컬 세션 연결 — 관리형 Codex/agy와 제한된 자동 대화
@@ -87,8 +90,8 @@ axmap bridge uninstall                             추가한 연결 훅 해제
 axmap bridge sessions                              이 repo에 연결된 세션
 axmap bridge attach --pid <PID>                    이미 실행한 Windows agy 콘솔을 현재 repo에 연결
 axmap bridge status [--json]                        로컬 연결·작업·승인 대기·종료 상태 조회 (모델 호출 없음)
-axmap bridge send --to <세션 UUID>                  본문은 stdin. 기존 세션에 전달
-axmap bridge result <요청 UUID>                     제출/완료/불명 상태와 결과
+axmap bridge send --to <세션 UUID> [--wait-ms 30000] 본문은 stdin. 전달 후 지정 시간까지 로컬에서 회신 대기
+axmap bridge result <요청 UUID> [--wait-ms 30000]    제출/완료/불명 상태와 결과. 대기 중 모델 호출 없음
 관리형 stdio: Codex App Server / agy stream-json. PTY와 agentapi는 별도 실험 경로입니다.`)
       break
     default: throw new Error(`알 수 없는 bridge 명령: ${command}`)

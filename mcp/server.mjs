@@ -40,7 +40,7 @@
  * stdio 전송 — 줄바꿈으로 구분된 JSON-RPC 2.0.
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
@@ -213,6 +213,57 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
 const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop'])
+const PIPELINE_TOOLS = new Set(['ax_pipeline', 'ax_pipeline_state', 'ax_pipeline_watch'])
+const PIPELINE_URI = 'ui://axmap/pipeline/v1.html'
+const PIPELINE_MIME = 'text/html;profile=mcp-app'
+let clientHasApps = false
+const runningPipeline = new Map()
+
+/** Each observation captures its repo. It may run beside a long dispatch without
+ * changing REPO, switching claims, or blocking UI refresh behind model work. */
+function pipeline(action, args, req, cwd) {
+  return new Promise(resolve => {
+    const offered = req.params?._meta?.progressToken
+    const token = typeof offered === 'string' || Number.isInteger(offered) ? offered : undefined
+    let buffer = '', stderr = '', result = null, ended = false, sequence = 0, reason = ''
+    const child = spawn(process.execPath, [path.join(SELF, 'tools', 'pipeline.mjs'), action], {
+      cwd, windowsHide: true, env: { ...process.env, AXMAP_AGENT: AGENT }, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    })
+    const finish = fallback => {
+      if (ended) return
+      ended = true; clearTimeout(timer); runningPipeline.delete(req.id)
+      const answer = result || { content: [{ type: 'text', text: fallback || reason || stderr || '파이프라인 응답을 확인하지 못했습니다. 요청을 자동 재전송하지 않습니다.' }], isError: true }
+      if (answer.structuredContent) answer.structuredContent.display = { mode: clientHasApps ? 'mcp-app' : 'text-progress', progress: token !== undefined }
+      resolve(answer)
+    }
+    const timer = setTimeout(() => { reason = '파이프라인 조회 시간 초과. 이미 전달한 작업은 계속될 수 있습니다.'; child.kill() }, 45000)
+    runningPipeline.set(req.id, () => {
+      reason = '조회 대기를 중단했습니다. 이미 전달한 작업은 계속 실행됩니다.'
+      // A dispatch holds a cross-process lock during submission. Let it finish
+      // that atomic step, then stop waiting; killing it could strand the lock.
+      if (child.connected) child.send({ type: 'cancel-observation' }, () => {})
+    })
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', chunk => {
+      buffer += chunk
+      if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) { reason = '파이프라인 응답 크기 제한 초과'; child.kill(); return }
+      while (buffer.includes('\n')) {
+        const at = buffer.indexOf('\n'), line = buffer.slice(0, at); buffer = buffer.slice(at + 1)
+        try {
+          const event = JSON.parse(line)
+          if (event.type === 'progress' && token !== undefined && !result && !ended && !reason) {
+            send({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: ++sequence, message: String(event.message) } })
+          } else if (event.type === 'result' && event.result?.content) result = event.result
+        } catch { reason = '파이프라인 응답 형식 오류'; child.kill() }
+      }
+    })
+    child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString('utf8')).slice(-8192) })
+    child.stdin.on('error', () => {})
+    child.once('error', error => finish(error.message))
+    child.once('close', () => finish())
+    child.stdin.end(JSON.stringify({ ...args, __progress: token !== undefined }))
+  })
+}
 function bridge(args, input) {
   const r = spawnSync(process.execPath, [path.join(SELF, 'tools', 'bridge.mjs'), ...args], {
     cwd: REPO, input, encoding: 'utf8', windowsHide: true,
@@ -386,6 +437,29 @@ function cli(args) {
 
 const TOOLS = [
   {
+    name: 'ax_pipeline',
+    description: '현재 대화에서 axMap 실행 흐름을 연다. MCP Apps 지원 화면은 실시간 패널, 다른 클라이언트는 같은 상태를 텍스트로 표시한다. 상태 조회만 수행하며 새 창이나 모델을 실행하지 않는다.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    inputSchema: { type: 'object', properties: {} },
+    _meta: { ui: { resourceUri: PIPELINE_URI }, 'openai/outputTemplate': PIPELINE_URI, 'antigravity/alwaysLoad': true },
+  },
+  {
+    name: 'ax_pipeline_state',
+    description: '열린 파이프라인 패널의 실제 상태를 갱신한다. 다른 작업을 중단하거나 재전송하지 않는다.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    inputSchema: { type: 'object', properties: {} },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'ax_pipeline_watch',
+    description: '현재 대화의 도구 진행 표시로 axMap 상태를 관측한다. progressToken이 있는 클라이언트에 MCP 진행 알림을 보내며, 없는 경우 현재 상태를 한 번 반환한다. 모델 호출이나 새 창 없음.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    inputSchema: { type: 'object', properties: {
+      duration_ms: { type: 'integer', minimum: 0, maximum: 25000, description: '최대 관측 시간. 기본 5000ms.' },
+      interval_ms: { type: 'integer', minimum: 500, maximum: 5000, description: '조회 간격. 기본 1000ms.' },
+    } },
+  },
+  {
     name: 'ax_sessions',
     description: '현재 repo에 연결된 로컬 AI 세션, 역할, 상태와 측정 토큰 사용량을 확인한다. stdio는 사용자가 bridge serve로 시작한 관리형 세션이다. 등록만으로 연결 가능성이나 실행 성공을 보장하지 않는다.',
     inputSchema: { type: 'object', properties: {} },
@@ -396,6 +470,7 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
+      wait_ms: { type: 'integer', minimum: 0, maximum: 30000, description: '전달 후 회신을 로컬에서 기다릴 최대 시간(ms). 짧은 요청은 30000으로 한 번에 회수한다. 기본 0.' },
     }, required: ['to', 'prompt'] },
   },
   {
@@ -403,6 +478,7 @@ const TOOLS = [
     description: '작업 요청의 제출/완료/불명 상태, 결과와 측정 사용량을 확인한다. 관리형 세션은 구조화된 완료 이벤트, PTY는 종료 훅, 독립 Windows console은 요청 UUID가 있는 대화 기록과 현재 빈 입력창의 대기 상태로 판정한다.',
     inputSchema: { type: 'object', properties: {
       id: { type: 'string', description: 'ax_dispatch가 반환한 요청 UUID' },
+      wait_ms: { type: 'integer', minimum: 0, maximum: 30000, description: '로컬 회신 대기(ms). 모델 호출 없이 완료 즉시 반환. 기본 0.' },
     }, required: ['id'] },
   },
   {
@@ -848,8 +924,8 @@ function dispatch(name, args = {}) {
 
   switch (name) {
     case 'ax_sessions': return bridge(['sessions'])
-    case 'ax_dispatch': return bridge(['send', '--to', args.to], args.prompt)
-    case 'ax_result': return bridge(['result', args.id])
+    case 'ax_dispatch': return bridge(['send', '--to', args.to, '--wait-ms', String(args.wait_ms ?? 0)], args.prompt)
+    case 'ax_result': return bridge(['result', args.id, '--wait-ms', String(args.wait_ms ?? 0)])
     case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,
       ...['maxTurns', 'maxTokens', 'maxMessageChars'].flatMap(key => args[key] === undefined ? [] :
         [`--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, String(args[key])])], args.prompt)
@@ -1041,13 +1117,28 @@ async function handle(req) {
 
   if (method === 'initialize') {
     rootsSupported = !!params?.capabilities?.roots
+    clientHasApps = !!params?.capabilities?.extensions?.['io.modelcontextprotocol/ui']?.mimeTypes?.includes(PIPELINE_MIME)
     return {
       protocolVersion: '2024-11-05',
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {} },
       serverInfo: { name: 'axmap', version: VERSION },
+      instructions: 'axMap works across ChatGPT, Claude and agy. Open ax_pipeline once for an inline panel when the host supports MCP Apps. Otherwise ax_pipeline_watch and ax_dispatch/ax_result with wait_ms report standard MCP progress when the client supplies progressToken. These observations never call a model. Do not resubmit unknown requests.',
     }
   }
-  if (method === 'tools/list') return { tools: TOOLS }
+  if (method === 'tools/list') return { tools: TOOLS.filter(tool => clientHasApps || tool.name !== 'ax_pipeline_state').map(tool => {
+    if (clientHasApps || !tool._meta?.ui?.resourceUri) return tool
+    const { ui, 'openai/outputTemplate': outputTemplate, ...metadata } = tool._meta
+    return { ...tool, _meta: metadata }
+  }) }
+  if (method === 'resources/list') return { resources: [{ uri: PIPELINE_URI, name: 'axmap-pipeline', title: 'axMap 실행 흐름', mimeType: PIPELINE_MIME }] }
+  if (method === 'resources/read') {
+    if (params?.uri !== PIPELINE_URI) throw Object.assign(new Error('알 수 없는 UI 리소스입니다.'), { code: -32602 })
+    return { contents: [{ uri: PIPELINE_URI, mimeType: PIPELINE_MIME,
+      text: fs.readFileSync(path.join(SELF, 'mcp', 'pipeline.html'), 'utf8'),
+      _meta: { ui: { prefersBorder: true, csp: { connectDomains: [], resourceDomains: ['https://cdn.jsdelivr.net'] } },
+        'openai/widgetCSP': { connect_domains: [], resource_domains: ['https://cdn.jsdelivr.net'] } },
+    }] }
+  }
   if (method === 'tools/call') {
     if (rootsSupported && !process.env.AXMAP_REPO) {
       if (!rootsTask || rootsError) refreshRoots()
@@ -1055,7 +1146,19 @@ async function handle(req) {
       let task
       do { task = rootsTask; await task } while (task !== rootsTask)
     }
-    const r = callTool(params?.name, params?.arguments ?? {})
+    const args = params?.arguments ?? {}
+    if (PIPELINE_TOOLS.has(params?.name)) {
+      const cwd = resolveRepo(args)
+      return pipeline(params.name === 'ax_pipeline_watch' ? 'watch' : 'snapshot', args, req, cwd)
+    }
+    if (['ax_dispatch', 'ax_result'].includes(params?.name)) {
+      let switched
+      try { switched = syncRepo(args) } catch (e) { return { content: [{ type: 'text', text: e.message }], isError: true } }
+      const answer = await pipeline(params.name === 'ax_dispatch' ? 'dispatch' : 'result', args, req, REPO)
+      if (switched) answer.content[0].text = switchNotice(switched) + '\n\n' + answer.content[0].text
+      return answer
+    }
+    const r = callTool(params?.name, args)
     const localBridge = BRIDGE_TOOLS.has(params?.name)
     const warning = r.ok && !localBridge ? syncConfiguredProfile(REPO, BUS, { ...process.env, AXMAP_AGENT: AGENT }) : ''
     return { content: [{ type: 'text', text: r.text + (warning ? '\n' + warning : '') + (r.ok && !localBridge ? unreadBanner(params?.name, r.text) : '') }], isError: !r.ok }
@@ -1067,6 +1170,16 @@ async function handle(req) {
 const rl = readline.createInterface({ input: process.stdin })
 // Execute tools in order, but keep reading client replies while a tool awaits roots.
 let requests = Promise.resolve()
+let initialized = Promise.resolve(), concurrentViews = 0
+async function respond(req) {
+  try {
+    const result = await handle(req)
+    if (result === null) send({ jsonrpc: '2.0', id: req.id, error: { code: -32601, message: `지원하지 않는 메서드: ${req.method}` } })
+    else send({ jsonrpc: '2.0', id: req.id, result })
+  } catch (e) {
+    send({ jsonrpc: '2.0', id: req.id, error: { code: typeof e.code === 'number' ? e.code : -32603, message: e.message } })
+  }
+}
 rl.on('line', (line) => {
   const s = line.trim()
   if (!s) return
@@ -1083,22 +1196,19 @@ rl.on('line', (line) => {
     return
   }
   if (req.id === undefined) {
+    if (req.method === 'notifications/cancelled') { runningPipeline.get(req.params?.requestId)?.(); return }
     if (rootsSupported && !process.env.AXMAP_REPO &&
       ['notifications/initialized', 'notifications/roots/list_changed'].includes(req.method)) refreshRoots()
     return
   }
-  requests = requests.then(async () => {
-    try {
-      const result = await handle(req)
-      if (result === null) {
-        send({ jsonrpc: '2.0', id: req.id, error: { code: -32601, message: `지원하지 않는 메서드: ${req.method}` } })
-      } else {
-        send({ jsonrpc: '2.0', id: req.id, result })
-      }
-    } catch (e) {
-      send({ jsonrpc: '2.0', id: req.id, error: { code: -32603, message: e.message } })
-    }
-  })
+  if ((req.method === 'tools/call' && PIPELINE_TOOLS.has(req.params?.name)) || ['resources/list', 'resources/read'].includes(req.method)) {
+    if (concurrentViews >= 4) { send({ jsonrpc: '2.0', id: req.id, error: { code: -32000, message: '동시 파이프라인 조회 한도입니다. 잠시 후 다시 조회하세요.' } }); return }
+    concurrentViews++
+    void initialized.then(() => respond(req)).finally(() => { concurrentViews-- })
+    return
+  }
+  requests = requests.then(() => respond(req))
+  if (req.method === 'initialize') initialized = requests
 })
 
 process.stderr.write(`axMap MCP · 저장소 ${REPO} · 에이전트 ${AGENT} (${ACTOR})\n`)

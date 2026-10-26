@@ -40,9 +40,10 @@ if (files.length === 0) {
 // Windows ConPTY owns native console workers. Exercise it after other test
 // processes have exited so temporary console teardown cannot race the suite's
 // many concurrent subprocess fixtures. Both batches remain mandatory.
-const native = process.platform === 'win32' ? files.filter(f => path.basename(f) === 'terminal-bridge.test.mjs') : []
+const nativeNames = new Set(['terminal-bridge.test.mjs', 'monitor-cli.test.mjs'])
+const native = process.platform === 'win32' ? files.filter(f => nativeNames.has(path.basename(f))) : []
 const ordinary = files.filter(f => !native.includes(f))
-for (const batch of [ordinary, native].filter(batch => batch.length)) {
+for (const batch of [ordinary, ...native.map(f => [f])].filter(batch => batch.length)) {
   const r = spawnSync(process.execPath, ['--test', ...batch], { stdio: 'inherit', cwd: root })
   if (r.status !== 0) process.exit(r.status ?? 1)
 }

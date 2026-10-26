@@ -30,10 +30,16 @@ https://github.com/rl2aderjoon/axmap/blob/main/mcp/SETUP-FOR-AI.md
 
 ## 도구
 
+현재 대화 안의 파이프라인 패널과 Claude Code·agy 상태줄 설치는
+[PIPELINE-CLIENTS.md](../docs/PIPELINE-CLIENTS.md)를 참고한다.
+
 | 도구 | 언제 |
 |---|---|
 | `ax_brief()` | 이 저장소에서 처음 일할 때 **가장 먼저** |
 | `ax_status()` | 지금 누가 어디를 잡고 있나 |
+| `ax_pipeline()` | 대화 안의 파이프라인 패널 또는 텍스트 스냅샷 |
+| `ax_pipeline_state()` | MCP Apps 패널의 상태 갱신 전용 |
+| `ax_pipeline_watch()` | 현재 도구 호출의 진행 알림으로 상태 관찰 |
 | `ax_check(paths)` | 내가 건드릴 곳이 비었나 — **선언은 안 한다.** 계획 세울 때 |
 | `ax_claim(paths, intent, task?)` | **파일을 고치기 전에 반드시.** intent 는 사람이 화면에서 읽는다 |
 | `ax_release(paths?)` | 끝나면 즉시. 생략하면 전부 반납 |

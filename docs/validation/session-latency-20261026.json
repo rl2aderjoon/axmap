@@ -1,0 +1,77 @@
+{
+  "measuredAt": "2026-10-26T00:20:39.792Z",
+  "platform": "win32",
+  "node": "v24.18.0",
+  "pid": 24904,
+  "cwd": "C:\\Users\\SSAFY\\Desktop\\axMap",
+  "snapshots": {
+    "powershell": {
+      "samplesMs": [
+        682.08,
+        605.18,
+        645.82,
+        617.72,
+        616.88,
+        588.02,
+        618.52
+      ],
+      "medianMs": 617.72
+    },
+    "native": {
+      "samplesMs": [
+        160.27,
+        140.18,
+        128.12,
+        127.49,
+        122.95,
+        126.81,
+        127.39
+      ],
+      "medianMs": 127.49
+    }
+  },
+  "requests": [
+    {
+      "id": "f52a71bd-147b-46fa-9ba1-6a401f1d6252",
+      "dispatchMs": 402.77,
+      "roundTripMs": 5780.29,
+      "state": "completed",
+      "expected": "AXMAP_LATENCY_READY",
+      "result": "AXMAP_LATENCY_READY",
+      "passed": true
+    },
+    {
+      "id": "8f532290-aad0-421c-b78b-173b6a705930",
+      "dispatchMs": 344.39,
+      "roundTripMs": 5312.27,
+      "state": "completed",
+      "expected": "d8b17e3b",
+      "result": "d8b17e3b",
+      "passed": true
+    },
+    {
+      "id": "b45d7c0d-8205-4ef0-bbde-d37325e58cb5",
+      "dispatchMs": 346.22,
+      "roundTripMs": 5400.9,
+      "state": "completed",
+      "expected": "한글_왕복_OK",
+      "result": "한글_왕복_OK",
+      "passed": true
+    }
+  ],
+  "safetyChecks": {
+    "changedIdentity": "Process identity changed",
+    "changedScreen": "Console changed before delivery; input was not sent"
+  },
+  "startedAt": "2026-10-26T00:14:27.4207496Z",
+  "sessionId": "74eec277-6621-4c8a-a940-b7b0988cfff8",
+  "snapshotSpeedup": 4.85,
+  "installedSmoke": {
+    "measuredAt": "2026-10-26T00:26:16.129Z",
+    "transport": "installed MCP ax_dispatch(wait_ms=30000)",
+    "roundTripMs": 4477.93,
+    "id": "2231d4c2-10d6-41da-a11f-38650c2aabb9",
+    "state": "completed",
+    "result": "AXMAP_INSTALLED_READY"
+  }
+}

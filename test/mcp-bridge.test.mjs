@@ -17,6 +17,7 @@ test('MCP exposes local session tools; missing sessions are errors with no ledge
       { id: 2, method: 'tools/call', params: { name: 'ax_sessions', arguments: {} } },
       { id: 3, method: 'tools/call', params: { name: 'ax_dispatch', arguments: { to: '00000000-0000-0000-0000-000000000000', prompt: 'hello' } } },
       { id: 4, method: 'tools/call', params: { name: 'ax_chat', arguments: { left: 'missing', right: 'missing', prompt: 'hello' } } },
+      { id: 5, method: 'tools/call', params: { name: 'ax_dispatch', arguments: { to: '00000000-0000-0000-0000-000000000000', prompt: 'hello', wait_ms: 30001 } } },
     ]
     const r = spawnSync(process.execPath, [server], { cwd: repo, encoding: 'utf8', windowsHide: true,
       env: { ...process.env, AXMAP_REPO: repo, AXMAP_AGENT: 'bridge-test', AXMAP_STATE_DIR: path.join(repo, 'state') },
@@ -30,6 +31,7 @@ test('MCP exposes local session tools; missing sessions are errors with no ledge
     assert.deepEqual(JSON.parse(responses.get(2).result.content[0].text), [])
     assert.equal(responses.get(3).result.isError, true)
     assert.equal(responses.get(4).result.isError, true)
+    assert.match(responses.get(5).result.content[0].text, /wait-ms/)
     assert.equal(fs.existsSync(path.join(repo, '.axmap')), false)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })

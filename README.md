@@ -19,11 +19,31 @@ Each Git repository's ledger is prepared on first use. Collaborators must share 
 
 [Usage](docs/INSTALL.md) · [MCP setup](mcp/README.md) · [Development](docs/ONBOARD-TEAM.md)
 
+Session and messaging modules are authored in strict TypeScript. See the [TypeScript development guide](docs/TYPESCRIPT.md) for the incremental migration and build workflow.
+
+View pipeline state inside compatible MCP Apps hosts, or add it to the existing Claude Code / agy statusline. Host support varies; actual ChatGPT and Claude embedded rendering remains unverified. See [client support and setup](docs/PIPELINE-CLIENTS.md). An optional separate terminal view is available with `axmap monitor` ([guide](docs/MONITOR.md)).
+
 ---
 
 ## Changelog
 
 Newest changes first.
+
+### 1.6.0
+
+<sub>October 26, 2026</sub>
+
+**Observe request flow and reduce the overhead of existing Windows agy connections.**
+
+- Cache the Windows console helper instead of recompiling it for every observation, with PowerShell fallback.
+- Add bounded `wait_ms` / `--wait-ms` response waiting and asynchronous MCP progress notifications.
+- Add MCP Apps pipeline resources, text fallback, and optional Claude Code / agy statuslines that preserve existing commands. An optional `axmap monitor` shows the same flow in a terminal.
+- Author session and pipeline modules in strict TypeScript while shipping generated JavaScript for Node.js 20+; TypeScript is not required at runtime.
+
+Actual agy delivery, progress and native statusline completion were verified on Windows. ChatGPT / Claude UI support is capability-based and covered by protocol tests; embedded rendering in those products remains unverified. This Codex session did not expose the new pipeline tools. Local stdio support does not provide a remote ChatGPT web endpoint.
+[Client setup and limits →](docs/PIPELINE-CLIENTS.md)
+
+---
 
 ### 1.5.0
 

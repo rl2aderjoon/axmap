@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+@import url('https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.css');
+:root { color-scheme:light dark; --surface:var(--color-background-primary,light-dark(#fff,#17191d)); --ink:var(--color-text-primary,light-dark(#20242b,#edf0f5)); --muted:var(--color-text-secondary,light-dark(#5b6574,#afb8c6)); --line:var(--color-border-primary,light-dark(#dce1e8,#3b414b)); --accent:light-dark(#2461c6,#80b0ff); --soft:light-dark(#edf3ff,#25364e); --warning:light-dark(#8a5600,#f5c56b); }
+:root[data-theme="dark"] { color-scheme:dark; }
+:root[data-theme="light"] { color-scheme:light; }
+* { box-sizing:border-box; }
+body { margin:0; padding:18px; background:var(--surface); color:var(--ink); font:14px/1.55 Pretendard,system-ui,sans-serif; }
+h1 { font-size:18px; font-weight:600; margin:0; }
+h2 { font-size:12px; font-weight:500; color:var(--muted); margin:20px 0 8px; }
+header { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.status { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
+.status::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--muted); }
+body[data-live="true"] .status::before { background:var(--accent); }
+.scope { font-size:12px; color:var(--muted); margin:6px 0 16px; overflow-wrap:anywhere; }
+button { margin-left:auto; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
+button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.sessions { display:flex; flex-wrap:wrap; gap:8px 18px; font-size:12px; }
+.session { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.session strong { font-weight:600; }
+.subtle { color:var(--muted); }
+.job { padding:14px 0; border-bottom:1px solid var(--line); }
+.job:last-child { border-bottom:0; }
+.route { font-weight:500; overflow-wrap:anywhere; }
+.task { margin-top:9px; color:var(--muted); overflow-wrap:anywhere; }
+.steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:16px; }
+.step { position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; gap:6px; font-size:12px; }
+.step:not(:last-child)::after { content:''; position:absolute; top:14px; left:calc(50% + 18px); width:calc(100% - 28px); height:1px; background:var(--line); }
+.mark { display:grid; place-items:center; position:relative; width:28px; height:28px; border-radius:50%; background:var(--line); color:var(--ink); }
+.step.done .mark,.step.current .mark { background:var(--soft); }
+.step.current .mark::after { content:''; position:absolute; inset:-3px; border:2px solid transparent; border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+body:not([data-live="true"]) .step.current .mark::after { animation-play-state:paused; }
+.issue { color:var(--warning); margin-top:10px; overflow-wrap:anywhere; }
+.events { list-style:none; padding:0; margin:0; font-size:12px; }
+.events li { padding:3px 0; overflow-wrap:anywhere; }
+time { color:var(--muted); margin-right:10px; font-variant-numeric:tabular-nums; }
+footer { border-top:1px solid var(--line); padding-top:10px; margin-top:14px; color:var(--muted); font-size:12px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .step.current .mark::after { animation:none; } }
+@media(max-width:420px) { body{padding:12px;} .steps{grid-template-columns:1fr;gap:10px;} .step{flex-direction:row;text-align:left;gap:12px;} .step:not(:last-child)::after{top:31px;left:14px;height:7px;width:1px;} button{margin-left:0;} }
+</style>
+</head>
+<body data-live="false">
+<main id="axmap-pipeline">
+  <header><h1>axMap 실행 흐름</h1><span class="status" id="status">연결 확인 중</span><button type="button" id="pause">새로고침 일시정지</button></header>
+  <div class="scope" id="scope">실제 작업 상태를 기다리는 중</div>
+  <div class="sessions" id="sessions"></div>
+  <section aria-label="요청 파이프라인" id="jobs"></section>
+  <div class="issue" id="issue" role="status" aria-live="polite"></div>
+  <section id="event-section"><h2>최근 이벤트</h2><ul class="events" id="events"></ul></section>
+  <footer id="checked">대화 안에서 상태만 조회합니다. 모델 호출·작업 재전송·자동 승인 없음.</footer>
+</main>
+<script>
+(() => {
+  const root=document.getElementById('axmap-pipeline');
+  const status=document.getElementById('status'),scope=document.getElementById('scope');
+  const sessions=document.getElementById('sessions'),jobs=document.getElementById('jobs');
+  const issue=document.getElementById('issue'),events=document.getElementById('events');
+  const checked=document.getElementById('checked'),pause=document.getElementById('pause');
+  const requests=new Map();let sequence=0,ready=false,mode='standard',cwd=null,requestedCwd=null,paused=false,stopped=false,inflight=false,timer,unavailable=false;
+  const pending=new Set(['sending','submitted','unknown']);
+  const states={sending:'전달 중',submitted:'응답 대기',completed:'완료 확인',unknown:'전송 확인 필요',failed:'실패',superseded:'다른 입력으로 대체됨'};
+  const sessionStates={starting:'시작 중',running:'작업 중',idle:'대기',awaiting_user:'승인 필요',settling:'대기 전환 중',closed:'종료',unknown:'상태 미확인'};
+  const connectionStates={connected:'연결됨',closed:'종료됨',unreachable:'연결 확인 불가',unverified:'확인 미지원'};
+  const text=value=>String(value??'').replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g,' ').slice(0,600);
+  const node=(tag,content,className)=>{const el=document.createElement(tag);if(content!==undefined)el.textContent=text(content);if(className)el.className=className;return el};
+  const notify=(method,params)=>window.parent.postMessage({jsonrpc:'2.0',method,params},'*');
+  function request(method,params){
+    const id=`axmap-ui-${++sequence}`;
+    return new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>{requests.delete(id);reject(new Error('호스트 응답 시간 초과'))},10000);
+      requests.set(id,{resolve,reject,timeout});window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');
+    });
+  }
+  function context(value){
+    if(value?.theme==='light'||value?.theme==='dark')document.documentElement.dataset.theme=value.theme;
+    const allowed=new Set(['--color-background-primary','--color-text-primary','--color-text-secondary','--color-border-primary']);
+    for(const [key,color]of Object.entries(value?.styles?.variables||{}))if(allowed.has(key)&&typeof color==='string')document.documentElement.style.setProperty(key,color);
+  }
+  function setLive(value,message){document.body.dataset.live=String(value);status.textContent=message;}
+  function render(data){
+    if(!data||data.schemaVersion!==1||data.type!=='pipeline'||typeof data.cwd!=='string'||!Array.isArray(data.requests)||!Array.isArray(data.sessions))return;
+    if(cwd&&data.cwd!==cwd){issue.textContent='다른 저장소의 상태를 받았습니다. 현재 패널의 저장소를 유지합니다.';setLive(false,'저장소 확인 필요');return;}
+    cwd=data.cwd;scope.textContent=text(cwd);sessions.replaceChildren();jobs.replaceChildren();events.replaceChildren();
+    for(const session of data.sessions.slice(0,6)){
+      const line=node('div',undefined,'session');line.append(node('strong',`${session.provider} · ${text(session.id).slice(0,8)}`),node('span',`${session.pendingApproval?'사용자 승인 필요':sessionStates[session.state]||'상태 미확인'} · ${connectionStates[session.connection]||'확인 미지원'}`,'subtle'));sessions.append(line);
+    }
+    const active=data.requests.filter(r=>pending.has(r.state));
+    const selected=[...active,...data.requests.filter(r=>!pending.has(r.state))].slice(0,4);
+    if(!selected.length)jobs.append(node('p','새 요청을 기다리는 중','subtle'));
+    for(const job of selected){
+      const item=node('article',undefined,'job');item.append(node('div',`${text(job.from)} → ${text(job.to).slice(0,8)} · ${states[job.state]||'확인 필요'}`,'route'));
+      const steps=node('div',undefined,'steps');
+      const done=job.state==='completed',sent=job.state==='submitted'||done;
+      ['접수','전달','응답','완료 확인'].forEach((label,index)=>{
+        const complete=done||index===0||(sent&&index===1);
+        const current=!done&&((job.state==='sending'&&index===1)||(job.state==='submitted'&&index===2));
+        const step=node('div',undefined,`step${complete?' done':current?' current':''}`);
+        const mark=node('span',complete?'✓':job.state==='unknown'&&index===1?'?':String(index+1),'mark');mark.setAttribute('aria-hidden','true');
+        step.append(mark,node('span',current&&index===2?'응답 대기':label));steps.append(step);
+      });
+      item.append(steps,node('div',job.task,'task'));if(job.error)item.append(node('div',job.error,'issue'));jobs.append(item);
+    }
+    for(const event of (data.events||[]).slice(0,5)){
+      const row=node('li');const date=new Date(event.at);row.append(node('time',Number.isFinite(date.getTime())?date.toLocaleTimeString('en-GB',{hour12:false}):'시각 미확인'),node('span',event.label));events.append(row);
+    }
+    issue.textContent=(data.issues||[]).slice(0,2).map(text).join(' · ');
+    checked.textContent=`관측 ${text(data.checkedAt)} · 상태 조회만 수행 · 작업 제어 없음`;
+    setLive(ready&&!paused&&!document.hidden,!ready?(unavailable?'현재 상태 · 자동 갱신 미지원':'연결 확인 중'):paused?'새로고침 일시정지':document.hidden?'화면 숨김':`진행 확인 ${active.length}개`);
+  }
+  function consume(result){if(result?.isError)throw new Error(result.content?.[0]?.text||'상태 조회 실패');render(result?.structuredContent);}
+  function schedule(){clearTimeout(timer);if(ready&&!paused&&!stopped&&!document.hidden)timer=setTimeout(poll,1200);}
+  async function poll(){
+    if(inflight||!ready||paused||stopped||document.hidden)return;
+    inflight=true;
+    try{const scope=cwd||requestedCwd,args=scope?{cwd:scope}:{};const result=mode==='openai'?await window.openai.callTool('ax_pipeline_state',args):await request('tools/call',{name:'ax_pipeline_state',arguments:args});consume(result);}
+    catch(error){setLive(false,'연결 확인 필요');issue.textContent=text(error?.message||error);}
+    finally{inflight=false;schedule();}
+  }
+  window.addEventListener('message',event=>{
+    if(event.source!==window.parent)return;const message=event.data;if(!message||message.jsonrpc!=='2.0')return;
+    if(requests.has(message.id)){const waiting=requests.get(message.id);requests.delete(message.id);clearTimeout(waiting.timeout);message.error?waiting.reject(new Error(message.error.message||'호스트 오류')):waiting.resolve(message.result);return;}
+    if(message.method==='ui/notifications/tool-result'){try{consume(message.params)}catch(error){issue.textContent=text(error.message);}}
+    if(message.method==='ui/notifications/tool-input'&&!cwd&&typeof message.params?.arguments?.cwd==='string')requestedCwd=message.params.arguments.cwd;
+    if(message.method==='ui/notifications/host-context-changed')context(message.params);
+    if(message.method==='ui/resource-teardown'){
+      stopped=true;clearTimeout(timer);resize.disconnect();setLive(false,'관측 종료');
+      if(message.id!==undefined)window.parent.postMessage({jsonrpc:'2.0',id:message.id,result:{}},'*');
+    }
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(timer);setLive(false,'화면 숨김')}else if(!paused){void poll()}});
+  pause.addEventListener('click',()=>{paused=!paused;pause.textContent=paused?'실시간 새로고침 재개':'새로고침 일시정지';if(paused){clearTimeout(timer);setLive(false,'새로고침 일시정지')}else{void poll()}});
+  let reportedHeight=0;
+  const resize=new ResizeObserver(()=>{if(!ready||mode!=='standard'||stopped)return;const height=Math.ceil(root.getBoundingClientRect().height)+36;if(height!==reportedHeight){reportedHeight=height;notify('ui/notifications/size-changed',{height})}});
+  resize.observe(root);
+  window.addEventListener('pagehide',()=>{stopped=true;clearTimeout(timer);resize.disconnect()});
+  if(window.openai?.toolOutput)render(window.openai.toolOutput);
+  (async()=>{
+    try{
+      const result=await request('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'axmap-pipeline',version:'1.0.0'},appCapabilities:{availableDisplayModes:['inline']}});
+      context(result?.hostContext);notify('ui/notifications/initialized',{});
+      ready=!!result?.hostCapabilities?.serverTools;
+      if(!ready){unavailable=true;setLive(false,'자동 갱신 미지원');issue.textContent='현재 호스트가 상태 조회 도구 호출을 제공하지 않습니다. ax_pipeline_watch로 진행 상태를 확인할 수 있습니다.';return;}
+    }catch(error){
+      if(typeof window.openai?.callTool==='function'){mode='openai';ready=true;}
+      else{unavailable=true;setLive(false,'MCP Apps 연결 필요');issue.textContent='이 화면에서는 실시간 UI 연결을 확인하지 못했습니다. 현재 대화에서 ax_pipeline_watch를 사용할 수 있습니다.';return;}
+    }
+    void poll();
+  })();
+})();
+</script>
+</body>
+</html>

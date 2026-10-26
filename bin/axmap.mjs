@@ -2624,6 +2624,8 @@ exec node "$AX" verify
 const RUNNERS = {
   run: ['tools/run.mjs', '사용자가 여는 AI CLI를 연결한다'],
   bridge: ['tools/bridge.mjs', '열린 로컬 AI 세션에 작업을 전달한다'],
+  monitor: ['tools/monitor.mjs', '세션과 요청 파이프라인을 실시간으로 표시한다'],
+  pipeline: ['tools/pipeline.mjs', '대화 안 파이프라인 표시와 CLI 상태줄을 연결한다'],
   gate: ['governance/gate.mjs', '이 MR 이 정족수를 채웠는가'],
   vote: ['governance/vote.mjs', '표를 던진다'],
   bus: ['tools/bus.mjs', '에이전트 사이 쪽지함'],
@@ -2834,6 +2836,8 @@ const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
   axmap vote                         표를 던진다
   axmap bus                          에이전트 사이 쪽지함 (post · list · read · reply)
   axmap bridge                       로컬 세션·자동 대화 (serve · sessions · send · chat · dialogue)
+  axmap monitor                      에이전트·요청 파이프라인·최근 이벤트 실시간 화면
+  axmap pipeline                     대화 안 표시·Claude/agy 상태줄 연결 (--help)
   axmap run agy [인수...]             연결된 Antigravity CLI를 직접 연다
   axmap mr-target                    이 브랜치가 저 브랜치로 갈 수 있는가
   axmap version                      브랜치 단계로 다음 버전을 정한다
@@ -2876,6 +2880,8 @@ switch (cmd) {
   // 이름을 경로로 바꿔 주는 것들 (RUNNERS). 인자는 손대지 않고 그대로 간다.
   case 'setup':
   case 'bridge':
+  case 'monitor':
+  case 'pipeline':
   case 'run':
   case 'gate':
   case 'vote':

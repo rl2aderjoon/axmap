@@ -19,11 +19,31 @@ axmap setup
 
 [사용법](docs/INSTALL.md) · [MCP 연결](mcp/README.md) · [개발 가이드](docs/ONBOARD-TEAM.md)
 
+세션·메시지 핵심 모듈은 strict TypeScript로 작성합니다. 단계적 전환 범위와 빌드 방법은 [TypeScript 개발 안내](docs/TYPESCRIPT.md)를 참고하세요.
+
+지원되는 MCP Apps 호스트에서는 대화 안에서 파이프라인을 확인하고, Claude Code·agy에서는 기존 상태줄에 진행을 추가할 수 있습니다. 호스트별 지원이 다르며 ChatGPT·Claude 앱의 실제 임베디드 화면은 아직 검증하지 않았습니다. [클라이언트 설정과 제한](docs/PIPELINE-CLIENTS.md). 선택적으로 별도 터미널의 `axmap monitor`도 제공합니다([사용법](docs/MONITOR.md)).
+
 ---
 
 ## 변경 기록
 
 최신 변경부터 정리합니다.
+
+### 1.6.0
+
+<sub>2026.10.26</sub>
+
+**요청 흐름을 표시하고 기존 Windows agy 연결의 관측 비용을 줄입니다.**
+
+- Windows 콘솔 도우미를 매번 컴파일하지 않고 캐시하며 PowerShell 대체 경로를 유지합니다.
+- 제한 시간 안에서 응답을 기다리는 `wait_ms`·`--wait-ms`와 비동기 MCP 진행 알림을 추가합니다.
+- MCP Apps 파이프라인 리소스, 텍스트 대체 출력, 기존 명령을 보존하는 Claude Code·agy 상태줄을 제공합니다. 별도 터미널 표시가 필요하면 `axmap monitor`를 사용합니다.
+- 세션·파이프라인 모듈을 strict TypeScript로 작성하며 Node.js 20+용 JavaScript를 함께 배포합니다. 실행에 TypeScript 설치는 필요하지 않습니다.
+
+Windows의 실제 agy에서 전달·진행 알림·상태줄의 완료 표시를 확인했습니다. ChatGPT·Claude UI는 기능 협상과 프로토콜 테스트로 검증했으며 실제 제품의 임베디드 화면 검증은 남아 있습니다. 이 Codex 세션에는 새 파이프라인 도구가 노출되지 않았습니다. 로컬 stdio 지원만으로 ChatGPT 웹용 원격 엔드포인트가 생기지는 않습니다.
+[클라이언트 설정과 제한 →](docs/PIPELINE-CLIENTS.md)
+
+---
 
 ### 1.5.0
 

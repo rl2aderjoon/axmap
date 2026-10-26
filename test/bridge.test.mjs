@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { dispatchRequest, installHooks, registerHook, requestResult, sessions, uninstallHooks } from '../src/bridge.mjs'
+import { dispatchRequest, installHooks, registerHook, requestResult, waitForRequest, sessions, uninstallHooks, writeJSON } from '../src/bridge.mjs'
 
 let root, repo, id, log, input, saved
 const oldEnv = () => ({ AXMAP_STATE_DIR: process.env.AXMAP_STATE_DIR, AXMAP_AGY_HOME: process.env.AXMAP_AGY_HOME })
@@ -103,6 +103,44 @@ test('provider error after a possible send is unknown and never automatically re
   assert.equal(r.state, 'unknown')
   assert.match(r.error, /transport failed/)
   assert.throws(() => dispatchRequest({ to: id, prompt: 'retry', cwd: repo }), /이전 요청/)
+})
+
+test('local wait collects a delayed completion without another model submission', async () => {
+  hook('Stop')
+  const request = dispatchRequest({ to: id, prompt: 'hello', cwd: repo })
+  assert.equal((await waitForRequest(request.id, repo, 0)).state, 'submitted')
+  const timer = setTimeout(() => {
+    append({ type: 'USER_INPUT', content: `[axMap request ${request.id}] hello` })
+    append({ source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', content: 'delayed reply' })
+    hook('Stop')
+  }, 150)
+  try {
+    const result = await waitForRequest(request.id, repo, 3000)
+    assert.equal(result.state, 'completed')
+    assert.equal(result.result, 'delayed reply')
+    assert.equal(fs.readdirSync(path.join(root, 'state', 'bridge', 'requests')).filter(n => n.endsWith('.json')).length, 1)
+    assert.deepEqual(await waitForRequest(request.id, repo, 30000), result)
+    for (const invalid of [-1, 30001, NaN, 1.5]) await assert.rejects(waitForRequest(request.id, repo, invalid), /wait-ms/)
+  } finally { clearTimeout(timer) }
+})
+
+test('Windows state replacement retries only transient locks and preserves the old record on failure', { skip: process.platform !== 'win32' }, t => {
+  const target = path.join(root, 'record.json')
+  writeJSON(target, { previous: true })
+  const rename = fs.renameSync
+  let attempts = 0
+  const mocked = t.mock.method(fs, 'renameSync', (...args) => {
+    if (++attempts < 3) throw Object.assign(new Error('reader lock'), { code: 'EPERM' })
+    return rename(...args)
+  })
+  writeJSON(target, { next: true })
+  assert.equal(attempts, 3)
+  assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { next: true })
+  mocked.mock.mockImplementation(() => { throw Object.assign(new Error('locked'), { code: 'EPERM' }) })
+  assert.throws(() => writeJSON(target, { lost: true }), /locked/)
+  assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { next: true })
+  assert.deepEqual(fs.readdirSync(root).filter(n => n.endsWith('.tmp')), [])
+  mocked.mock.restore()
 })
 
 test('installer preserves other hooks, backs up exact bytes and runs the Windows wrapper', () => {

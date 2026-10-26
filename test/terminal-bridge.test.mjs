@@ -118,7 +118,9 @@ for (const provider of ['agy', 'codex']) test(`${provider}: real PTY keeps one p
       assert.equal(exitCode, 0, `terminal host must exit cleanly: ${stderr}`)
     }
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    // Yield while Windows releases the exited ConPTY worker's directory handles.
+    assert.equal(path.dirname(path.resolve(dir)), path.resolve(os.tmpdir()))
+    await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 })
 
