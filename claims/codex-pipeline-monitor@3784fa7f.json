@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "codex-pipeline-monitor-20261026",
-  "since": "2026-10-26T01:28:54.951Z",
+  "since": "2026-10-26T01:31:54.992Z",
   "ttlMs": 1800000,
   "paths": [
     "README.ko.md",
@@ -19,6 +19,7 @@
     "src/monitor.mts",
     "test/monitor-cli.test.mjs",
     "test/monitor.test.mjs",
-    "tools/monitor.mjs"
+    "tools/monitor.mjs",
+    "tools/run-tests.mjs"
   ]
 }
