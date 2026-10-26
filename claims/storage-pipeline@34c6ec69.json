@@ -1,10 +1,10 @@
 {
   "agent": "storage-pipeline",
   "task": "S15P31E109-207",
-  "intent": "원본 대화ID를 공개 세션 목록에 보존",
+  "intent": "실제 로컬상태로 갱신하는 그래프 화면 및 읽기전용 loopback endpoint 추가",
   "actor": null,
   "session": "pipeline-207",
-  "since": "2026-10-26T06:41:47.529Z",
+  "since": "2026-10-26T06:47:06.009Z",
   "ttlMs": 1800000,
   "paths": [
     ".claude/commands/pipeline.md",
@@ -26,11 +26,14 @@
     "src/pipeline-graph.mts",
     "src/pipeline-mcp.mjs",
     "src/pipeline-mcp.mts",
+    "src/pipeline-web.mjs",
+    "src/pipeline-web.mts",
     "src/session-types.mjs",
     "src/session-types.mts",
     "test/codex-connection.test.mjs",
     "test/fixtures/codex-proxy.mjs",
     "test/pipeline-graph.test.mjs",
+    "test/pipeline-web.test.mjs",
     "tools/bridge.mjs",
     "tools/pipeline.mjs"
   ]
