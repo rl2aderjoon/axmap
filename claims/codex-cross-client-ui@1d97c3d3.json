@@ -4,9 +4,10 @@
   "intent": null,
   "actor": null,
   "session": "codex-cross-client-ui-20261026",
-  "since": "2026-10-26T02:19:59.854Z",
+  "since": "2026-10-26T02:28:31.723Z",
   "ttlMs": 1800000,
   "paths": [
+    "bin/axmap.mjs",
     "docs/DECISIONS.md",
     "docs/PIPELINE-CLIENTS.md",
     "docs/TYPESCRIPT.md",
