@@ -2,7 +2,8 @@
   "name": "janghyojoon",
   "aliases": [
     "codex-session-release",
-    "codex-session-activity"
+    "codex-session-activity",
+    "codex-local-latency"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
