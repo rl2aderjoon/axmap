@@ -1,0 +1,22 @@
+{
+  "agent": "codex-cross-client-ui",
+  "task": "cross-client-inline-pipeline",
+  "intent": null,
+  "actor": null,
+  "session": "codex-cross-client-ui-20261026",
+  "since": "2026-10-26T02:09:33.064Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/DECISIONS.md",
+    "docs/PIPELINE-CLIENTS.md",
+    "docs/TYPESCRIPT.md",
+    "mcp/README.md",
+    "mcp/pipeline.html",
+    "mcp/server.mjs",
+    "src/pipeline-mcp.mjs",
+    "src/pipeline-mcp.mts",
+    "test/pipeline-mcp.test.mjs",
+    "test/pipeline-ui.test.mjs",
+    "tools/pipeline.mjs"
+  ]
+}
