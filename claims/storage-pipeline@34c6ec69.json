@@ -1,10 +1,10 @@
 {
   "agent": "storage-pipeline",
   "task": "S15P31E109-207",
-  "intent": "로컬소켓 회귀fixture와 배포파일목록·검증기록 보완",
+  "intent": "원본 대화ID를 공개 세션 목록에 보존",
   "actor": null,
   "session": "pipeline-207",
-  "since": "2026-10-26T06:36:23.434Z",
+  "since": "2026-10-26T06:41:47.529Z",
   "ttlMs": 1800000,
   "paths": [
     ".claude/commands/pipeline.md",
@@ -13,6 +13,8 @@
     "mcp/pipeline.html",
     "package.json",
     "skills/pipeline",
+    "src/bridge.mjs",
+    "src/bridge.mts",
     "src/closure.mjs",
     "src/codex-connection.mjs",
     "src/codex-connection.mts",
