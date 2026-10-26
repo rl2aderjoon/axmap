@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "codex-typescript-20261026",
-  "since": "2026-10-26T00:48:32.275Z",
+  "since": "2026-10-26T00:50:13.929Z",
   "ttlMs": 1800000,
   "paths": [
     ".gitignore",
@@ -21,6 +21,7 @@
     "src/external-console.mts",
     "src/managed-session.mjs",
     "src/managed-session.mts",
+    "src/node-pty.d.ts",
     "src/session-dialogue.mjs",
     "src/session-dialogue.mts",
     "src/session-status.mjs",
