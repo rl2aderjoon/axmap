@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "codex-cross-client-ui-20261026",
-  "since": "2026-10-26T02:09:33.064Z",
+  "since": "2026-10-26T02:19:59.854Z",
   "ttlMs": 1800000,
   "paths": [
     "docs/DECISIONS.md",
@@ -15,7 +15,10 @@
     "mcp/server.mjs",
     "src/pipeline-mcp.mjs",
     "src/pipeline-mcp.mts",
+    "src/pipeline-statusline.mjs",
+    "src/pipeline-statusline.mts",
     "test/pipeline-mcp.test.mjs",
+    "test/pipeline-statusline.test.mjs",
     "test/pipeline-ui.test.mjs",
     "tools/pipeline.mjs"
   ]
