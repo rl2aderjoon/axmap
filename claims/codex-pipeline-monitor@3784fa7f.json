@@ -1,0 +1,24 @@
+{
+  "agent": "codex-pipeline-monitor",
+  "task": "live-pipeline-monitor",
+  "intent": null,
+  "actor": null,
+  "session": "codex-pipeline-monitor-20261026",
+  "since": "2026-10-26T01:28:54.951Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "bin/axmap.mjs",
+    "docs/DECISIONS.md",
+    "docs/MONITOR.md",
+    "docs/TYPESCRIPT.md",
+    "src/monitor-cli.mjs",
+    "src/monitor-cli.mts",
+    "src/monitor.mjs",
+    "src/monitor.mts",
+    "test/monitor-cli.test.mjs",
+    "test/monitor.test.mjs",
+    "tools/monitor.mjs"
+  ]
+}
