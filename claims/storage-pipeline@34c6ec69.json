@@ -1,0 +1,31 @@
+{
+  "agent": "storage-pipeline",
+  "task": "S15P31E109-207",
+  "intent": "기존Codex 로컬AppServer 연결과 pipeline 세션그래프·명령 구현",
+  "actor": null,
+  "session": "pipeline-207",
+  "since": "2026-10-26T06:28:48.849Z",
+  "ttlMs": 1800000,
+  "paths": [
+    ".claude/commands/pipeline.md",
+    "docs/LOCAL-PIPELINE.md",
+    "mcp/pipeline.html",
+    "skills/pipeline",
+    "src/codex-connection.mjs",
+    "src/codex-connection.mts",
+    "src/managed-session.mjs",
+    "src/managed-session.mts",
+    "src/monitor-cli.mjs",
+    "src/monitor-cli.mts",
+    "src/pipeline-graph.mjs",
+    "src/pipeline-graph.mts",
+    "src/pipeline-mcp.mjs",
+    "src/pipeline-mcp.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "test/codex-connection.test.mjs",
+    "test/pipeline-graph.test.mjs",
+    "tools/bridge.mjs",
+    "tools/pipeline.mjs"
+  ]
+}
