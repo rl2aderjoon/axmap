@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "codex-typescript-20261026",
-  "since": "2026-10-26T00:51:45.483Z",
+  "since": "2026-10-26T00:57:16.455Z",
   "ttlMs": 1800000,
   "paths": [
     ".gitignore",
@@ -35,6 +35,7 @@
     "src/terminal-bridge.mts",
     "src/windows-console.mjs",
     "src/windows-console.mts",
+    "test/terminal-bridge.test.mjs",
     "test/typescript.test.mjs",
     "tools/build.mjs",
     "tsconfig.json"
