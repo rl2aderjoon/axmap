@@ -3,7 +3,8 @@
   "aliases": [
     "codex-session-release",
     "codex-session-activity",
-    "codex-local-latency"
+    "codex-local-latency",
+    "codex-typescript"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
