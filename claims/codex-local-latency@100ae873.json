@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "codex-local-latency-20261026",
-  "since": "2026-10-26T00:19:02.618Z",
+  "since": "2026-10-26T00:20:32.938Z",
   "ttlMs": 1800000,
   "paths": [
     "docs/SESSION-BRIDGE.md",
@@ -17,6 +17,7 @@
     "test/external-console.test.mjs",
     "test/mcp-bridge.test.mjs",
     "test/windows-console.test.mjs",
+    "tools/bench-console.mjs",
     "tools/bridge.mjs",
     "tools/windows-console.cs"
   ]
