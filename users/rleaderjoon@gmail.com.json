@@ -7,7 +7,8 @@
     "codex-typescript",
     "codex-pipeline-monitor",
     "codex-cross-client-ui",
-    "codex-release-160"
+    "codex-release-160",
+    "storage-pipeline"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
