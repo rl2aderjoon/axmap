@@ -40,7 +40,7 @@ export interface SessionRecord {
   token?: string
 }
 export type PublicSession = Pick<SessionRecord, 'id' | 'provider' | 'workspaces' | 'model' | 'transport' |
-  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval'>
+  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval' | 'conversationId'>
 export interface SessionSnapshot extends PublicSession {
   lastKnownState: SessionState | null
   state: SessionState
@@ -80,6 +80,7 @@ export type LocalMessage = { token?: string } & (
   { action: 'status' } | { action: 'result'; id: string } |
   { action: 'answer'; id: string | number; decision: string } |
   { action: 'submit'; request: LocalRequest } |
+  { action: 'notice'; text: string } |
   { action: 'hook'; event: string; input: HookInput }
 )
 export interface JobRecord {

@@ -1,0 +1,163 @@
+{
+  "task": "S15P31E109-207",
+  "checked_utc": "2026-10-26T07:00:57.060066+00:00",
+  "reference": "User local BIio34PgIbXUmfSL.mp4, 36.53s; frames visually inspected",
+  "daemon": {
+    "version": "0.164.0",
+    "socket": "official local control socket",
+    "new_model_process_or_thread": false
+  },
+  "real_existing_thread_verification": [
+    {
+      "dispatchMs": 435.44489999999996,
+      "roundTripMs": 5210.859100000001,
+      "result": {
+        "id": "local-id-f9f2cb7bd690",
+        "to": "local-id-48e8e69aab71",
+        "from": "storage-pipeline-207",
+        "repo": "<local-repository-common-dir>",
+        "prompt": "Without tools or file changes, recall TWO bugs from your earlier axMap review in THIS same conversation. Give one short English sentence, followed by AXMAP_CONTEXT_OK.",
+        "createdAt": "2026-10-26T06:38:34.396Z",
+        "baseline": null,
+        "state": "completed",
+        "receipt": {
+          "accepted": true,
+          "session": "local-id-48e8e69aab71"
+        },
+        "result": "Concurrent claims can silently disappear from the shared ledger, and edited votes can be incorrectly attributed to their original authors. AXMAP_CONTEXT_OK",
+        "turnId": "local-id-a536c7956c42",
+        "rawUsage": {
+          "totalTokens": 45709444,
+          "inputTokens": 45501654,
+          "cachedInputTokens": 44821632,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 207790,
+          "reasoningOutputTokens": 91259
+        },
+        "usage": null,
+        "completedAt": "2026-10-26T06:38:39.188Z",
+        "conversationId": "local-id-7c93ec244990"
+      }
+    },
+    {
+      "dispatchMs": 307.6905000000006,
+      "roundTripMs": 6185.6467,
+      "result": {
+        "id": "local-id-fe7e93f22420",
+        "to": "local-id-48e8e69aab71",
+        "from": "storage-pipeline-207",
+        "repo": "<local-repository-common-dir>",
+        "prompt": "Without tools or file changes, reply only AXMAP_SECOND_TURN_OK.",
+        "createdAt": "2026-10-26T06:38:39.503Z",
+        "baseline": null,
+        "state": "completed",
+        "receipt": {
+          "accepted": true,
+          "session": "local-id-48e8e69aab71"
+        },
+        "result": "AXMAP_SECOND_TURN_OK",
+        "turnId": "local-id-ba1db2002418",
+        "rawUsage": {
+          "totalTokens": 45946607,
+          "inputTokens": 45738807,
+          "cachedInputTokens": 45058560,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 207800,
+          "reasoningOutputTokens": 91259
+        },
+        "usage": {
+          "inputTokens": 237153,
+          "cachedInputTokens": 236928,
+          "outputTokens": 10,
+          "reasoningTokens": 0,
+          "totalTokens": 237163,
+          "providerTotalTokens": 237163
+        },
+        "completedAt": "2026-10-26T06:38:45.148Z",
+        "conversationId": "local-id-7c93ec244990"
+      }
+    }
+  ],
+  "initial_corrupted_unicode_attempt": {
+    "path": ".axmap/local-pipeline-207-evidence.json",
+    "scope": "transport success only; not context proof"
+  },
+  "full_suite": {
+    "exit_code": 0,
+    "ordinary_pass": 600,
+    "native_monitor_pass": 2,
+    "native_terminal_pass": 4,
+    "log": ".axmap/pipeline-207-tests.log"
+  },
+  "additional_latest_web_ui_tests": {
+    "pass": 4,
+    "fail": 0
+  },
+  "demos": {
+    "basic": 0,
+    "compare": 0,
+    "chaos": 0
+  },
+  "package": {
+    "files": 88,
+    "includes": [
+      "skills/pipeline/SKILL.md",
+      "src/codex-connection.mjs",
+      "mcp/pipeline.html",
+      "src/pipeline-web.mjs"
+    ]
+  },
+  "installation": "Local npm global source build + user pipeline skill + Claude slash command; no public publish",
+  "primary_repo_connections": {
+    "count": 4,
+    "roles": [
+      "storage",
+      "research",
+      "coordination",
+      "spring-db"
+    ],
+    "state": "All connected, original conversation IDs retained; active sessions observation only until idle"
+  },
+  "browser": {
+    "status": "not_visually_verified",
+    "reason": "Chrome localhost origin 127.0.0.1:8786 declined by approval policy; no workaround"
+  },
+  "limits": [
+    "First attached request usage unknown without baseline",
+    "No startup service configured",
+    "Current MCP host may require reconnect and UI capability support",
+    "Source local uncommitted, no git push/public npm publish",
+    "No forced native-client interception; routing instruction recorded into all 3 peer contexts without model turns, future compliance not independently proved"
+  ],
+  "context_only_notices": [
+    {
+      "noticeId": "local-id-44be6daf68bd",
+      "conversationId": "local-id-ba9d5f0c5f22",
+      "state": "context_recorded",
+      "modelInvoked": false
+    },
+    {
+      "noticeId": "local-id-303bf7134e2b",
+      "conversationId": "local-id-dd1b95e8a87c",
+      "state": "context_recorded",
+      "modelInvoked": false
+    },
+    {
+      "noticeId": "local-id-ae6f503f9911",
+      "conversationId": "local-id-399515ec302a",
+      "state": "context_recorded",
+      "modelInvoked": false
+    }
+  ],
+  "latest_relevant_regression": {
+    "pass": 12,
+    "fail": 0,
+    "scope": "connector, notice without model turn, monitor, terminal graph, local web"
+  },
+  "earlier_relevant_regression": {
+    "pass": 22,
+    "fail": 0,
+    "scope": "connector, topology, UI, web, MCP progress and statusline"
+  },
+  "publication_note": "Prepared for Git sharing. Local conversation/request identifiers are consistently pseudonymized; private raw evidence remains excluded under .axmap."
+}

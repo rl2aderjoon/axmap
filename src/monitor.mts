@@ -50,6 +50,10 @@ export function createMonitor(cwd: string, options: {
     let sessions: SessionSnapshot[] = []
     try { sessions = await probe(workspace) } catch (e) { issues.push(`세션 확인: ${errorMessage(e)}`) }
     const requests: RequestRecord[] = []
+    for (const raw of records(path.join(bridgeHome(), 'notices'), issues, '안내')) {
+      if (!object(raw) || raw.repo !== repo || typeof raw.id !== 'string' || typeof raw.to !== 'string' || typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt))) continue
+      event(`notice:${raw.id}`, raw.createdAt, `문맥 안내 기록 · ${raw.to.slice(0, 8)} · 모델 턴 없음`, 'success')
+    }
     for (const raw of records(path.join(bridgeHome(), 'requests'), issues, '요청')) {
       if (!object(raw) || raw.repo !== repo) continue
       if (typeof raw.id !== 'string' || typeof raw.to !== 'string' || typeof raw.prompt !== 'string' || typeof raw.from !== 'string' || typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt)) || typeof raw.state !== 'string' || !requestLabels[raw.state]) { issues.push('형식이 올바르지 않은 요청 기록이 있습니다.'); continue }

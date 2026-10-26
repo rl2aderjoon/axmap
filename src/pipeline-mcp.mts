@@ -17,9 +17,11 @@ export function pipelineView(snapshot: MonitorSnapshot) {
   return {
     schemaVersion: 1, type: 'pipeline', cwd: snapshot.cwd, checkedAt: snapshot.checkedAt,
     sessions: snapshot.sessions.map(s => ({ id: s.id, provider: s.provider, state: s.state, connection: s.connection,
+      model: s.model ?? null, transport: s.transport ?? null, conversationId: s.conversationId ?? null,
       role: fitTerminal(s.role, 120), usage: s.usage ?? null, pendingApproval: !!s.pendingApproval })),
     requests: snapshot.requests.map(r => ({ id: r.id, to: r.to, from: terminalText(r.from), state: r.state,
-      task: fitTerminal(r.prompt, 200), createdAt: r.createdAt, completedAt: r.completedAt, error: fitTerminal(r.error, 240) })),
+      task: fitTerminal(r.prompt, 200), createdAt: r.createdAt, completedAt: r.completedAt, usage: r.usage ?? null,
+      latencyMs: r.completedAt ? Math.max(0, Date.parse(r.completedAt) - Date.parse(r.createdAt)) : null, error: fitTerminal(r.error, 240) })),
     dialogues: snapshot.dialogues.map(d => ({ id: d.id, state: d.state, turns: d.turns.length,
       maxTurns: d.limits?.maxTurns, usage: d.usage ?? null, usagePending: d.usagePending })),
     claims: snapshot.claims.slice(0, 10).map(c => ({ agent: terminalText(c.agent), task: fitTerminal(c.intent || c.task, 160),

@@ -8,12 +8,17 @@ import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto'
 import { bridgeHome, repoKey, writeJSON } from './bridge.mjs'
 import { normalizeUsage, usageDelta } from './session-usage.mjs'
 import { errorMessage } from './session-types.mjs'
+import { connectCodexProxy } from './codex-connection.mjs'
+import type { ProviderProcess } from './codex-connection.mjs'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { Provider, SessionRecord, RequestState, LocalMessage, JobRecord } from './session-types.mjs'
+import type { Usage } from './session-types.mjs'
 
 interface ManagedSessionOptions {
   provider: Provider; executable?: string; prefix?: string[]; args?: string[] | null; model?: string; role?: string
   cwd?: string; maxTokens?: number; timeoutMs?: number; onEvent?: (event: Record<string, unknown>) => void
+  existingThreadId?: string; socketPath?: string
+  observeActive?: boolean
 }
 interface ProviderMessage {
   id?: string | number; method?: string; event?: string; conversation_id?: string
@@ -29,19 +34,22 @@ interface AgyResult { conversation_id: string; status: string; response?: unknow
 const pipeFor = (id: string) => process.platform === 'win32' ? `\\\\.\\pipe\\axmap-${id}` : path.join(bridgeHome(), `${id}.sock`)
 const uuid = (value: string | undefined) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '')
 
-export async function startManagedSession({ provider, executable = provider, prefix = [], args = null, model, role = '',
+export async function startManagedSession({ provider, executable = provider, prefix = [], args = null, model, role = '', existingThreadId, socketPath, observeActive = false,
   cwd = process.cwd(), maxTokens = 100000, timeoutMs = 120000, onEvent = () => {} }: ManagedSessionOptions) {
   if (!['codex', 'agy'].includes(provider)) throw new Error('지원하는 세션은 codex 또는 agy입니다.')
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('양의 토큰/시간 한도가 필요합니다.')
   if (typeof role !== 'string' || role.length > 1000) throw new Error('역할은 1000자 이하여야 합니다.')
+  if (existingThreadId && (provider !== 'codex' || !uuid(existingThreadId) || !socketPath || model || args)) throw new Error('기존 Codex thread와 로컬 socket이 필요하며 모델·실행 인수를 바꾸지 않습니다.')
   const id = randomUUID(), token = randomBytes(32).toString('hex')
   const sessionPath = path.join(bridgeHome(), 'sessions', `${id}.json`)
   const s: SessionRecord = { id, token, provider, transport: 'stdio', role, model: model || null,
     workspaces: [path.resolve(cwd)], repos: [repoKey(cwd)], state: 'starting', fullyIdle: false,
     registeredAt: new Date().toISOString(), usage: null, usageKnown: true, maxTokens }
   const jobs = new Map<string, JobRecord>()
+  let attachedUsageOrigin: Usage | null = null
+  let initialThreadState = 'idle'
   const calls = new Map<string | number, { resolve: (result: unknown) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>()
-  let child: ChildProcessWithoutNullStreams | undefined, sequence = 0, pending: JobRecord | null = null, closed = false, buffer = '', stderr = '', turnTimer: NodeJS.Timeout | undefined
+  let child: ProviderProcess | undefined, sequence = 0, pending: JobRecord | null = null, closed = false, buffer = '', stderr = '', turnTimer: NodeJS.Timeout | undefined
   const save = () => { s.registeredAt = new Date().toISOString(); writeJSON(sessionPath, s) }
   const emit = (event: Record<string, unknown>) => onEvent({ session: id, ...event })
   const write = (message: unknown) => {
@@ -62,7 +70,7 @@ export async function startManagedSession({ provider, executable = provider, pre
       completedAt: new Date().toISOString(), conversationId: s.conversationId })
     delete pending.baseline
     delete pending.baselineKnown
-    if (usage) s.usage = usage
+    if (usage) { s.usage = usage; if (existingThreadId && !attachedUsageOrigin) attachedUsageOrigin = usage }
     s.usageKnown = usage !== null
     emit({ event: 'result', request: { ...pending } })
     pending = null; s.state = 'idle'; s.fullyIdle = true; delete s.pendingApproval; save()
@@ -76,10 +84,18 @@ export async function startManagedSession({ provider, executable = provider, pre
     s.state = 'closed'; s.fullyIdle = false; save()
     child?.stdin.destroy(); child?.kill(); server.close()
   }
-  const handle = (message: LocalMessage) => {
+  let checkingSubmission = false
+  const handle = async (message: LocalMessage) => {
     const offered = Buffer.from(typeof message.token === 'string' ? message.token : '')
     const expected = Buffer.from(token)
     if (offered.length !== expected.length || !timingSafeEqual(offered, expected)) throw new Error('로컬 세션 인증 실패')
+    if (message.action === 'notice') {
+      if (!existingThreadId || provider !== 'codex' || typeof message.text !== 'string' || !message.text.trim() || Buffer.byteLength(message.text) > 8192) throw new Error('기존 Codex 대화에 1~8192바이트 안내만 기록할 수 있습니다.')
+      const noticeId = randomUUID()
+      await rpc('thread/inject_items', { threadId: existingThreadId, items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `[axMap notice ${noticeId}; context only, no new model turn]\n${message.text}` }] }] })
+      writeJSON(path.join(bridgeHome(), 'notices', `${noticeId}.json`), { id: noticeId, to: id, conversationId: existingThreadId, repo: repoKey(cwd), text: message.text, createdAt: new Date().toISOString(), state: 'context_recorded', modelInvoked: false })
+      return { noticeId, conversationId: existingThreadId, state: 'context_recorded', modelInvoked: false }
+    }
     if (message.action === 'status') return { id, state: s.state, usage: s.usage, pendingApproval: s.pendingApproval }
     if (message.action === 'result') {
       const result = jobs.get(message.id)
@@ -95,17 +111,26 @@ export async function startManagedSession({ provider, executable = provider, pre
       delete s.pendingApproval; s.state = 'running'; save(); return { answered: true }
     }
     if (message.action !== 'submit') throw new Error('지원하지 않는 로컬 세션 요청입니다.')
+    if (jobs.has(message.request?.id)) throw new Error('이미 접수한 요청 ID입니다. 다시 전송하지 않았습니다.')
     if (closed || s.state !== 'idle' || pending) throw new Error('세션이 대기 중이 아닙니다. 요청을 전달하지 않았습니다.')
+    if (existingThreadId) {
+      if (checkingSubmission) throw new Error('다른 요청의 상태를 확인 중입니다.')
+      checkingSubmission = true
+      try {
+        const read = await rpc<{ thread: { id: string; status: { type: string } } }>('thread/read', { threadId: existingThreadId })
+        if (closed || pending || read.thread.id !== existingThreadId || read.thread.status.type !== 'idle') throw new Error('기존 대화가 다른 작업 중입니다. 새 요청을 전달하지 않았습니다.')
+      } finally { checkingSubmission = false }
+    }
     if (!s.usageKnown) throw new Error('직전 요청의 사용량을 확인하지 못했습니다. 새 연결에서 예산을 확인하세요.')
-    if (s.usage && s.usage.totalTokens >= maxTokens) throw new Error('세션 토큰 한도에 도달했습니다.')
+    if (s.usage && s.usage.totalTokens - (existingThreadId ? attachedUsageOrigin?.totalTokens ?? s.usage.totalTokens : 0) >= maxTokens) throw new Error('세션 토큰 한도에 도달했습니다.')
     const request = message.request
     if (!uuid(request?.id) || request.to !== id || typeof request.prompt !== 'string' || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 32768) throw new Error('요청 형식이 올바르지 않습니다.')
-    pending = { id: request.id, to: id, state: 'submitted', baseline: s.usage, baselineKnown: s.usageKnown, result: '' }
+    pending = { id: request.id, to: id, state: 'submitted', baseline: s.usage, baselineKnown: s.usageKnown && (!existingThreadId || !!s.usage), result: '' }
     jobs.set(request.id, pending); s.state = 'running'; s.fullyIdle = false; save()
     const prompt = `[axMap request ${request.id}]\n요청자: ${request.from || 'axmap'}\n${role ? `역할: ${role}\n` : ''}${request.prompt}`
     turnTimer = setTimeout(() => shutdown('실행 시간 한도 초과. 완료 여부가 불명확하므로 자동 재시도하지 않습니다.'), timeoutMs)
     if (provider === 'agy') write({ event: 'user', message: { content: prompt } })
-    else rpc<{ turn: { id: string } }>('turn/start', { threadId: s.conversationId, input: [{ type: 'text', text: prompt }], effort: 'low' })
+    else rpc<{ turn: { id: string } }>('turn/start', { threadId: s.conversationId, input: [{ type: 'text', text: prompt }], ...(!existingThreadId ? { effort: 'low' } : {}) })
       .then(r => { if (pending?.id === request.id) pending.turnId = r.turn.id })
       .catch(e => shutdown(e.message))
     return { accepted: true, session: id }
@@ -120,7 +145,7 @@ export async function startManagedSession({ provider, executable = provider, pre
       if (Buffer.byteLength(input) > 65536) return socket.destroy()
       const end = input.indexOf('\n'); if (end < 0) return
       handled = true
-      try { socket.end(JSON.stringify({ result: handle(JSON.parse(input.slice(0, end))) }) + '\n') }
+      try { void handle(JSON.parse(input.slice(0, end))).then(result => socket.end(JSON.stringify({ result }) + '\n'), e => socket.end(JSON.stringify({ error: errorMessage(e) }) + '\n')) }
       catch (e) { socket.end(JSON.stringify({ error: errorMessage(e) }) + '\n') }
     })
   })
@@ -130,7 +155,7 @@ export async function startManagedSession({ provider, executable = provider, pre
   save()
   const cliArgs = args || (provider === 'codex' ? ['app-server', '--stdio']
     : ['--input-format', 'stream-json', '--output-format', 'stream-json', '--disable-slash-commands', '--effort', 'low', ...(model ? ['--model', model] : [])])
-  child = spawn(executable, [...prefix, ...cliArgs], { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+  child = existingThreadId ? connectCodexProxy({ executable, prefix, socketPath: socketPath!, cwd }) : spawn(executable, [...prefix, ...cliArgs], { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, AXMAP_AGENT: `${provider}-${id.slice(0, 8)}`, AXMAP_SESSION: id } })
   child.stdin.on('error', e => shutdown(e.message))
   const exited = new Promise<{ code: number | null; signal?: NodeJS.Signals | null; error?: string }>(resolve => {
@@ -139,6 +164,7 @@ export async function startManagedSession({ provider, executable = provider, pre
   })
   child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString('utf8')).slice(-8192) })
   child.stdout.setEncoding('utf8')
+  child.stdout.on('error', e => shutdown(e.message))
   child.stdout.on('data', chunk => {
     buffer += chunk
     if (Buffer.byteLength(buffer) > 4 * 1024 * 1024) return shutdown('CLI 응답 크기 제한 초과')
@@ -169,7 +195,15 @@ export async function startManagedSession({ provider, executable = provider, pre
           continue
         }
         if (m.params?.threadId !== s.conversationId) continue
-        if (m.method === 'thread/tokenUsage/updated' && pending) pending.rawUsage = m.params?.tokenUsage?.total
+        if (m.method === 'thread/status/changed' && !pending) {
+          const status = m.params?.status as { type?: string } | undefined
+          s.state = status?.type === 'active' ? 'running' : status?.type === 'idle' ? 'idle' : 'unknown'
+          s.fullyIdle = s.state === 'idle'; save()
+        }
+        if (m.method === 'thread/tokenUsage/updated') {
+          if (pending) pending.rawUsage = m.params?.tokenUsage?.total
+          else { const usage = normalizeUsage(provider, m.params?.tokenUsage?.total); if (usage) { s.usage = usage; s.usageKnown = true; save() } }
+        }
         if (m.method === 'item/completed' && pending && m.params?.item?.type === 'agentMessage') pending.result = m.params.item.text
         if (m.method === 'turn/completed' && pending) {
           const r = m.params?.turn
@@ -184,9 +218,19 @@ export async function startManagedSession({ provider, executable = provider, pre
     if (provider === 'codex') {
       await rpc('initialize', { clientInfo: { name: 'axmap', version: '1' } })
       write({ method: 'initialized' })
-      const r = await rpc<{ thread: { id: string }; model?: string }>('thread/start', { cwd: path.resolve(cwd), ...(model ? { model } : {}),
-        sandbox: 'read-only', approvalPolicy: 'on-request' })
-      s.conversationId = r.thread.id; s.model = r.model || model || null; s.state = 'idle'; s.fullyIdle = true; save()
+      if (existingThreadId) {
+        const read = await rpc<{ thread: { id: string; cwd: string; status: { type: string } } }>('thread/read', { threadId: existingThreadId })
+        initialThreadState = read.thread.status.type
+        if (read.thread.id !== existingThreadId || (initialThreadState !== 'idle' && !(observeActive && initialThreadState === 'active'))) throw new Error('기존 thread가 idle 상태가 아닙니다. 전송하거나 새 대화를 만들지 않았습니다.')
+        // Parent workspace sessions can explicitly join a child Git repo. Never attach across unrelated roots.
+        const relative = path.relative(path.resolve(read.thread.cwd), path.resolve(cwd))
+        if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('기존 thread와 요청 저장소 경로가 다릅니다.')
+      }
+      const r = await rpc<{ thread: { id: string }; model?: string }>(existingThreadId ? 'thread/resume' : 'thread/start', existingThreadId
+        ? { threadId: existingThreadId, excludeTurns: true }
+        : { cwd: path.resolve(cwd), ...(model ? { model } : {}), sandbox: 'read-only', approvalPolicy: 'on-request' })
+      if (existingThreadId && r.thread.id !== existingThreadId) throw new Error('기존 thread ID가 바뀌었습니다.')
+      s.conversationId = r.thread.id; s.model = r.model || model || null; s.state = initialThreadState === 'active' ? 'running' : 'idle'; s.fullyIdle = s.state === 'idle'; save()
       emit({ event: 'ready', conversationId: s.conversationId })
     } else {
       const deadline = Date.now() + 30000
