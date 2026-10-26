@@ -1,10 +1,10 @@
 {
   "agent": "storage-pipeline",
   "task": "S15P31E109-207",
-  "intent": "실제 로컬상태로 갱신하는 그래프 화면 및 읽기전용 loopback endpoint 추가",
+  "intent": "모델턴없는 안내 전달도 pipeline 이벤트에 표시",
   "actor": null,
   "session": "pipeline-207",
-  "since": "2026-10-26T06:47:06.009Z",
+  "since": "2026-10-26T06:59:25.547Z",
   "ttlMs": 1800000,
   "paths": [
     ".claude/commands/pipeline.md",
@@ -22,6 +22,8 @@
     "src/managed-session.mts",
     "src/monitor-cli.mjs",
     "src/monitor-cli.mts",
+    "src/monitor.mjs",
+    "src/monitor.mts",
     "src/pipeline-graph.mjs",
     "src/pipeline-graph.mts",
     "src/pipeline-mcp.mjs",
