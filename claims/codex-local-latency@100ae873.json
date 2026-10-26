@@ -1,0 +1,19 @@
+{
+  "agent": "codex-local-latency",
+  "task": "local-console-latency",
+  "intent": null,
+  "actor": null,
+  "session": "codex-local-latency-20261026",
+  "since": "2026-10-26T00:16:16.330Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/SESSION-BRIDGE.md",
+    "docs/validation/session-latency-20261026.json",
+    "src/bridge.mjs",
+    "src/external-console.mjs",
+    "src/windows-console.mjs",
+    "test/external-console.test.mjs",
+    "test/windows-console.test.mjs",
+    "tools/windows-console.cs"
+  ]
+}
