@@ -8,6 +8,7 @@ import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue } fr
 import { sendTerminal } from '../src/terminal-bridge.mjs'
 import { sessionStatus, formatSessionStatus } from '../src/session-status.mjs'
 import { attachConsole } from '../src/external-console.mjs'
+import { postMail, collectMail, flushMail } from '../src/session-mailbox.mjs'
 
 const args = process.argv.slice(2)
 const [command] = args
@@ -15,6 +16,20 @@ const option = (name) => { const i = args.indexOf(`--${name}`); return i < 0 ? u
 const output = (value) => console.log(JSON.stringify(value, null, 2))
 try {
   switch (command) {
+    case 'message': {
+      const r = postMail({ to: option('to'), cwd: process.cwd(), text: fs.readFileSync(0, 'utf8'),
+        priority: option('priority') || 'boundary', reason: option('reason'), topic: option('topic'), key: option('key'),
+        ttlSeconds: Number(option('ttl-seconds') || 3600) })
+      output(r)
+      if (r.delivery && !['submitted', 'empty'].includes(r.delivery.state)) process.exitCode = 2
+      break
+    }
+    case 'mailbox': output(collectMail({ to: option('to'), cwd: process.cwd(), at: option('at'), take: args.includes('--take'), all: args.includes('--all') })); break
+    case 'flush': {
+      const r = flushMail({ to: option('to'), cwd: process.cwd(), at: option('at') }); output(r)
+      if (['unknown', 'deferred'].includes(r.state)) process.exitCode = 2
+      break
+    }
     case 'attach': output(attachConsole({ pid: Number(option('pid')), cwd: process.cwd() })); break
     case 'connect':
     case 'serve': {
@@ -99,6 +114,15 @@ axmap bridge notice --to <UUID>                    stdin 안내를 기존 Codex 
 axmap bridge attach --pid <PID>                    이미 실행한 Windows agy 콘솔을 현재 repo에 연결
 axmap bridge status [--json]                        로컬 연결·작업·승인 대기·종료 상태 조회 (모델 호출 없음)
 axmap bridge send --to <세션 UUID> [--wait-ms 30000] 본문은 stdin. 전달 후 지정 시간까지 로컬에서 회신 대기
+    send는 실행용 저수준 명령입니다. 일반 협업 알림에는 message를 사용하세요.
+axmap bridge message --to <UUID> [--topic <갱신 주제>] [--key <중복 방지 키>] [--ttl-seconds 3600]
+    stdin 일반 메시지를 큐에 저장합니다. 모델 호출·새 턴 없음. 같은 발신자의 대기 중 topic만 최신으로 합칩니다.
+axmap bridge message --to <UUID> --priority immediate --reason stop|data-loss|work-invalidated
+    긴급 사유를 보존하고 즉시 전달을 시도합니다. busy면 deferred, unknown이면 재전송 금지.
+axmap bridge mailbox --to <UUID> [--all]
+    읽기만 합니다. --take --at checkpoint로 작업 경계에서 묶음 회수 (모델 호출 없음).
+axmap bridge flush --to <UUID> --at task-complete|test-complete|experiment-complete|checkpoint
+    필요할 때만 idle 수신자에게 큐를 한 요청으로 전달. 자동 감시·중단·재전송 없음.
 axmap bridge result <요청 UUID> [--wait-ms 30000]    제출/완료/불명 상태와 결과. 대기 중 모델 호출 없음
 관리형 stdio: Codex App Server / agy stream-json. PTY와 agentapi는 별도 실험 경로입니다.`)
       break

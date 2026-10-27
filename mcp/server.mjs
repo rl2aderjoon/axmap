@@ -212,7 +212,7 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
  */
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
-const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop'])
+const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop', 'ax_message', 'ax_mailbox', 'ax_mailbox_flush'])
 const PIPELINE_TOOLS = new Set(['ax_pipeline', 'ax_pipeline_state', 'ax_pipeline_watch'])
 const PIPELINE_URI = 'ui://axmap/pipeline/v1.html'
 const PIPELINE_MIME = 'text/html;profile=mcp-app'
@@ -465,8 +465,35 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'ax_message',
+    description: '에이전트 협업 메시지. 일반 진행·결과·계약 확인은 기본 boundary 큐에 저장하며 새 턴을 만들지 않는다. 긴급 중단·데이터 손상·현재 작업 무효화만 immediate와 reason을 명시한다. 긴급도 작업 중인 세션을 강제 중단하지 않으며 deferred/unknown을 전달 성공으로 취급하지 않는다. 단순 알림 ACK 금지.',
+    inputSchema: { type: 'object', properties: {
+      to: { type: 'string' }, text: { type: 'string' },
+      priority: { type: 'string', enum: ['boundary', 'immediate'], default: 'boundary' },
+      reason: { type: 'string', enum: ['stop', 'data-loss', 'work-invalidated'] },
+      topic: { type: 'string', description: '명시적으로 같은 주제인 대기 업데이트만 최신으로 대체. 발신자별 분리.' },
+      key: { type: 'string', description: '동일 메시지 재접수 방지. 같은 키에 다른 내용은 거절.' },
+      ttl_seconds: { type: 'integer', minimum: 1, maximum: 86400, default: 3600 },
+    }, required: ['to', 'text'] },
+  },
+  {
+    name: 'ax_mailbox',
+    description: '작업 시작·테스트 완료·실험 종료 등 안전한 경계에서 받은 협업 메시지를 한 번에 읽는다. 기본 조회는 읽음 처리하지 않는다. take=true와 at을 명시하면 묶음 회수하며 새 모델 턴은 없다. collected는 실행 완료나 사람 승인이 아니다. 단순 결과 알림에 회신하지 말고 필요한 결정만 모아 처리한다.',
+    inputSchema: { type: 'object', properties: {
+      to: { type: 'string' }, take: { type: 'boolean', default: false }, all: { type: 'boolean', default: false },
+      at: { type: 'string', enum: ['task-complete', 'test-complete', 'experiment-complete', 'checkpoint'] },
+    }, required: ['to'] },
+  },
+  {
+    name: 'ax_mailbox_flush',
+    description: '명시한 작업 경계에서 대기 메시지를 idle 상대에게 한 요청으로 전달한다. 수신자가 직접 ax_mailbox로 회수하는 방법을 우선한다. 빈 큐는 모델 호출 없음. 전달불명·프로세스 중단 후 자동 재전송하지 않는다.',
+    inputSchema: { type: 'object', properties: { to: { type: 'string' },
+      at: { type: 'string', enum: ['task-complete', 'test-complete', 'experiment-complete', 'checkpoint'] },
+    }, required: ['to', 'at'] },
+  },
+  {
     name: 'ax_dispatch',
-    description: '사용자가 허용한 작업을 연결된 상대 세션에 전달한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. Codex/agy 관리형 stdio, 별도로 실행한 Windows agy console, 실험용 PTY/agentapi 연결을 지원한다.',
+    description: '명시적으로 상대의 실행 턴이 필요한 작업용 저수준 전달이다. 일반 진행·완료·계약 확인 알림에는 새 턴 없는 ax_message를 사용하고 수신자가 작업 경계에서 ax_mailbox로 묶음 회수한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. 작업 중인 세션을 강제 중단하지 않는다.',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
@@ -924,6 +951,10 @@ function dispatch(name, args = {}) {
 
   switch (name) {
     case 'ax_sessions': return bridge(['sessions'])
+    case 'ax_message': return bridge(['message', '--to', args.to, '--priority', args.priority ?? 'boundary',
+      ...[['reason', args.reason], ['topic', args.topic], ['key', args.key], ['ttl-seconds', args.ttl_seconds]].flatMap(([k, v]) => v === undefined ? [] : [`--${k}`, String(v)])], args.text)
+    case 'ax_mailbox': return bridge(['mailbox', '--to', args.to, ...(args.take ? ['--take'] : []), ...(args.all ? ['--all'] : []), ...(args.at ? ['--at', args.at] : [])])
+    case 'ax_mailbox_flush': return bridge(['flush', '--to', args.to, '--at', args.at])
     case 'ax_dispatch': return bridge(['send', '--to', args.to, '--wait-ms', String(args.wait_ms ?? 0)], args.prompt)
     case 'ax_result': return bridge(['result', args.id, '--wait-ms', String(args.wait_ms ?? 0)])
     case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,
@@ -1122,7 +1153,7 @@ async function handle(req) {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {}, resources: {} },
       serverInfo: { name: 'axmap', version: VERSION },
-      instructions: 'axMap works across ChatGPT, Claude and agy. Open ax_pipeline once for an inline panel when the host supports MCP Apps. Otherwise ax_pipeline_watch and ax_dispatch/ax_result with wait_ms report standard MCP progress when the client supplies progressToken. These observations never call a model. Do not resubmit unknown requests.',
+      instructions: 'axMap works across ChatGPT, Claude and agy. Routine collaboration updates go through ax_message (boundary queue, no new turn). At safe task/test/experiment checkpoints collect your ax_mailbox with take=true and at; batch decisions, do not ACK informational updates. Use immediate only for stop/data-loss/work-invalidated; busy delivery is deferred, not an interrupt. ax_dispatch starts an explicit execution request, not a routine notification. Open ax_pipeline once for an inline panel when the host supports MCP Apps. Otherwise ax_pipeline_watch and ax_dispatch/ax_result with wait_ms report standard MCP progress when the client supplies progressToken. Observations never call a model. Do not resubmit unknown requests.',
     }
   }
   if (method === 'tools/list') return { tools: TOOLS.filter(tool => clientHasApps || tool.name !== 'ax_pipeline_state').map(tool => {

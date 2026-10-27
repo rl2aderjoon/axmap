@@ -251,3 +251,9 @@ setup의 실행 사본에도 필요한 생산 의존성을 복사·로딩 검증
 Codex가 새 훅의 신뢰 검토를 요구하면 사용자가 검토해야 한다. 이를 자동으로 우회하지 않는다.
 [Codex Hooks](https://developers.openai.com/codex/hooks)
 Windows 홈 경로에 공백이 있는 경우의 훅 실행도 현재 제한 사항이다.
+# 일반 협업 알림과 실행 요청
+
+일반 진행·완료 알림은 `ax_message` / `bridge message`로 무호출 큐에 보관한다.
+수신자는 작업 경계에서 `ax_mailbox`로 모아 읽는다. `ax_dispatch` / `bridge send`는
+명시적인 실행 턴이 필요한 작업용이다. 긴급 사유·만료·중복 방지·묶음 전송 및 강제 중단
+미지원 범위는 [SESSION-MAILBOX.md](SESSION-MAILBOX.md)에 정리했다.
