@@ -100,6 +100,7 @@ function transcript(session) {
 }
 function publicSession(s) {
     return { id: s.id, provider: s.provider, workspaces: s.workspaces, model: s.model,
+        conversationId: s.conversationId,
         transport: s.transport || 'agentapi', state: s.state, pid: s.pid,
         registeredAt: s.registeredAt, event: s.event, fullyIdle: s.fullyIdle,
         role: s.role, usage: s.usage, usageKnown: s.usageKnown, maxTokens: s.maxTokens, pendingApproval: s.pendingApproval };

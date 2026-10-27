@@ -47,6 +47,9 @@ https://github.com/rl2aderjoon/axmap/blob/main/mcp/SETUP-FOR-AI.md
 | `ax_inbox(id?)` | 다른 에이전트가 나에게 보낸 쪽지를 읽는다 |
 | `ax_sessions()` | 같은 repo의 연결된 세션·역할·상태·사용량 |
 | `ax_dispatch(to, prompt)` / `ax_result(id)` | 연결된 세션에 단일 작업 전달·결과 조회 |
+| `ax_message(to, text)` | 일반 협업 알림 무호출 큐 저장. 즉시 전달은 명시적 긴급 사유 필요 |
+| `ax_mailbox(to, take, at)` | 안전한 작업 경계에서 메시지 묶음 회수. 모델 호출 없음 |
+| `ax_mailbox_flush(to, at)` | 필요할 때 idle 상대에게 대기 메시지를 한 요청으로 전달 |
 | `ax_chat(left, right, prompt, maxTurns?, maxTokens?)` | 관리형 세션 두 개의 제한된 자동 대화를 백그라운드 접수 |
 | `ax_dialogue(id)` / `ax_chat_stop(id)` | 대화·토큰 조회 / 추가 중계 중단 |
 | `ax_send(to?, subject, body)` | 다른 에이전트에게 쪽지를 보낸다 |

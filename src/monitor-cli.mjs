@@ -2,12 +2,13 @@
 import path from 'node:path';
 import { createMonitor, renderMonitor } from './monitor.mjs';
 import { errorMessage } from './session-types.mjs';
+import { renderPipelineGraph } from './pipeline-graph.mjs';
 export async function runMonitor(args) {
     if (args.includes('--help') || args.includes('-h')) {
         console.log('axmap monitor [--cwd <repo>] [--interval 1000] [--once | --json] [--no-color]\n세션·요청 파이프라인·자동 대화·선점·최근 이벤트를 실시간으로 표시합니다.\nTTY에서는 계속 갱신하며, 파이프/리디렉션에서는 한 번만 출력합니다. q / Esc / Ctrl+C 종료.');
         return;
     }
-    const allowed = new Set(['--cwd', '--interval', '--once', '--json', '--no-color']);
+    const allowed = new Set(['--cwd', '--interval', '--once', '--json', '--no-color', '--graph']);
     for (let i = 0; i < args.length; i++) {
         if (!allowed.has(args[i]))
             throw new Error(`알 수 없는 옵션: ${args[i]}`);
@@ -22,11 +23,12 @@ export async function runMonitor(args) {
     if (!Number.isInteger(interval) || interval < 250 || interval > 60000)
         throw new Error('interval은 250~60000ms 정수여야 합니다.');
     const collect = createMonitor(path.resolve(option('--cwd') || process.cwd()));
+    const render = args.includes('--graph') ? renderPipelineGraph : renderMonitor;
     const live = !!process.stdout.isTTY && !!process.stdin.isTTY && process.env.TERM !== 'dumb' && !args.includes('--once') && !args.includes('--json');
     const color = !!process.stdout.isTTY && !args.includes('--no-color') && process.env.NO_COLOR === undefined && process.env.TERM !== 'dumb';
     if (!live) {
         const snapshot = await collect();
-        console.log(args.includes('--json') ? JSON.stringify(snapshot, null, 2) : renderMonitor(snapshot, { columns: process.stdout.columns || 100, rows: process.stdout.rows || 40, color }));
+        console.log(args.includes('--json') ? JSON.stringify(snapshot, null, 2) : render(snapshot, { columns: process.stdout.columns || 100, rows: process.stdout.rows || 56, color }));
         return;
     }
     let stopped = false, frame = 0, timer, animation;
@@ -53,7 +55,7 @@ export async function runMonitor(args) {
         const draw = () => {
             if (stopped || !latest)
                 return;
-            const view = renderMonitor(latest, { columns: process.stdout.columns || 100, rows: Math.max(1, (process.stdout.rows || 36) - 1), color, frame: frame++ });
+            const view = render(latest, { columns: process.stdout.columns || 100, rows: Math.max(1, (process.stdout.rows || 36) - 1), color, frame: frame++ });
             process.stdout.write('\x1b[H' + view.replaceAll('\n', '\x1b[K\r\n') + '\x1b[K\x1b[J');
         };
         const update = async () => {

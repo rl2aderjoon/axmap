@@ -29,6 +29,23 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.7.0
+
+<sub>October 27, 2026</sub>
+
+**Batch routine collaboration messages at safe work boundaries and connect existing local Codex threads.**
+
+- Use `ax_message` / `axmap bridge message` for routine updates without starting a model turn. Receivers collect messages together with `ax_mailbox` at task, test or experiment checkpoints.
+- Explicit urgent reasons distinguish stop requests, data-loss risks and changes that invalidate current work. Busy recipients defer delivery; this release does not force-interrupt active work.
+- Preserve message provenance and history while supporting expiration, idempotency keys and latest pending updates per sender/topic. Uncertain delivery is never automatically retried.
+- Connect an existing Codex thread through its local control socket, with read-only observation of active work and idle checks before submission.
+- Add the `axmap pipeline` graph, a read-only loopback web view and context-only Codex notices that do not start a new model turn.
+
+Mailbox behavior is covered by isolated provider and CLI/MCP tests. Actual turn savings and active-work interruption are not claimed. Receivers must collect their mailbox at safe checkpoints; reconnect MCP clients to discover the new tools. Existing execution-oriented `ax_dispatch` remains available.
+[Mailbox guide →](docs/SESSION-MAILBOX.md) · [Local pipeline →](docs/LOCAL-PIPELINE.md)
+
+---
+
 ### 1.6.0
 
 <sub>October 26, 2026</sub>
