@@ -1,10 +1,10 @@
 {
   "agent": "codex-view",
   "task": null,
-  "intent": "포트폴리오 예시를 실제 세션·선점·편지함으로 보여 주는 터미널 화면 구현",
+  "intent": "새 터미널 화면의 Windows 콘솔 검사를 단독 실행",
   "actor": null,
   "session": "axmap-view-20261028",
-  "since": "2026-10-28T02:04:59.204Z",
+  "since": "2026-10-28T02:11:41.638Z",
   "ttlMs": 1800000,
   "paths": [
     ".claude/commands/axmap-view.md",
@@ -18,6 +18,7 @@
     "src/view.mjs",
     "src/view.mts",
     "test/view.test.mjs",
+    "tools/run-tests.mjs",
     "tools/view.mjs"
   ]
 }
