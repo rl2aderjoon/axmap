@@ -2625,6 +2625,7 @@ const RUNNERS = {
   run: ['tools/run.mjs', '사용자가 여는 AI CLI를 연결한다'],
   bridge: ['tools/bridge.mjs', '열린 로컬 AI 세션에 작업을 전달한다'],
   monitor: ['tools/monitor.mjs', '세션과 요청 파이프라인을 실시간으로 표시한다'],
+  view: ['tools/view.mjs', '세션·선점·받은 편지함을 터미널 카드로 표시한다'],
   pipeline: ['tools/pipeline.mjs', '대화 안 파이프라인 표시와 CLI 상태줄을 연결한다'],
   gate: ['governance/gate.mjs', '이 MR 이 정족수를 채웠는가'],
   vote: ['governance/vote.mjs', '표를 던진다'],
@@ -2837,6 +2838,7 @@ const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
   axmap bus                          에이전트 사이 쪽지함 (post · list · read · reply)
   axmap bridge                       로컬 세션·자동 대화 (serve · sessions · send · chat · dialogue)
   axmap monitor                      에이전트·요청 파이프라인·최근 이벤트 실시간 화면
+  axmap view                         세션·선점·받은 편지함을 카드로 실시간 표시
   axmap pipeline                     대화 안 표시·Claude/agy 상태줄 연결 (--help)
   axmap run agy [인수...]             연결된 Antigravity CLI를 직접 연다
   axmap mr-target                    이 브랜치가 저 브랜치로 갈 수 있는가
@@ -2881,6 +2883,7 @@ switch (cmd) {
   case 'setup':
   case 'bridge':
   case 'monitor':
+  case 'view':
   case 'pipeline':
   case 'run':
   case 'gate':

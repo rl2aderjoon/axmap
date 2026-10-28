@@ -3,12 +3,13 @@ import path from 'node:path';
 import { createMonitor, renderMonitor } from './monitor.mjs';
 import { errorMessage } from './session-types.mjs';
 import { renderPipelineGraph } from './pipeline-graph.mjs';
+import { createView, renderView } from './view.mjs';
 export async function runMonitor(args) {
     if (args.includes('--help') || args.includes('-h')) {
         console.log('axmap monitor [--cwd <repo>] [--interval 1000] [--once | --json] [--no-color]\n세션·요청 파이프라인·자동 대화·선점·최근 이벤트를 실시간으로 표시합니다.\nTTY에서는 계속 갱신하며, 파이프/리디렉션에서는 한 번만 출력합니다. q / Esc / Ctrl+C 종료.');
         return;
     }
-    const allowed = new Set(['--cwd', '--interval', '--once', '--json', '--no-color', '--graph']);
+    const allowed = new Set(['--cwd', '--interval', '--once', '--json', '--no-color', '--graph', '--view']);
     for (let i = 0; i < args.length; i++) {
         if (!allowed.has(args[i]))
             throw new Error(`알 수 없는 옵션: ${args[i]}`);
@@ -22,8 +23,9 @@ export async function runMonitor(args) {
     const interval = Number(option('--interval') || 1000);
     if (!Number.isInteger(interval) || interval < 250 || interval > 60000)
         throw new Error('interval은 250~60000ms 정수여야 합니다.');
-    const collect = createMonitor(path.resolve(option('--cwd') || process.cwd()));
-    const render = args.includes('--graph') ? renderPipelineGraph : renderMonitor;
+    const cwd = path.resolve(option('--cwd') || process.cwd());
+    const collect = args.includes('--view') ? createView(cwd) : createMonitor(cwd);
+    const render = args.includes('--view') ? renderView : args.includes('--graph') ? renderPipelineGraph : renderMonitor;
     const live = !!process.stdout.isTTY && !!process.stdin.isTTY && process.env.TERM !== 'dumb' && !args.includes('--once') && !args.includes('--json');
     const color = !!process.stdout.isTTY && !args.includes('--no-color') && process.env.NO_COLOR === undefined && process.env.TERM !== 'dumb';
     if (!live) {

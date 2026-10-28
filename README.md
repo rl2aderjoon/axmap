@@ -1,5 +1,7 @@
 # axMap
 
+Run `axmap view --cwd <repository>` to see observed local sessions, claims, pending mailbox messages and recent events in a terminal dashboard. The view refreshes interactively; press `q` or Esc to exit. Use `--once` for a snapshot or `--json` for structured output. See [the view guide](docs/VIEW.md). The display reflects available observations, not a complete view of every agent or GitLab activity.
+
 **Several AI agents. One repository. Clear ownership before every edit.**
 
 axMap is a collaboration CLI that claims files and folders before work begins and rejects overlapping claims.

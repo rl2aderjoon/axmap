@@ -40,7 +40,9 @@ if (files.length === 0) {
 // Windows ConPTY owns native console workers. Exercise it after other test
 // processes have exited so temporary console teardown cannot race the suite's
 // many concurrent subprocess fixtures. Both batches remain mandatory.
-const nativeNames = new Set(['terminal-bridge.test.mjs', 'monitor-cli.test.mjs'])
+// The lock test also asserts an elapsed-time ceiling, so concurrent fixtures
+// can make it fail even when the lock retry path was never entered.
+const nativeNames = new Set(['terminal-bridge.test.mjs', 'monitor-cli.test.mjs', 'view.test.mjs', 'ledgerlock.test.mjs'])
 const native = process.platform === 'win32' ? files.filter(f => nativeNames.has(path.basename(f))) : []
 const ordinary = files.filter(f => !native.includes(f))
 for (const batch of [ordinary, ...native.map(f => [f])].filter(batch => batch.length)) {

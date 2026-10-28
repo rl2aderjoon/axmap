@@ -23,6 +23,8 @@ axmap setup
 
 지원되는 MCP Apps 호스트에서는 대화 안에서 파이프라인을 확인하고, Claude Code·agy에서는 기존 상태줄에 진행을 추가할 수 있습니다. 호스트별 지원이 다르며 ChatGPT·Claude 앱의 실제 임베디드 화면은 아직 검증하지 않았습니다. [클라이언트 설정과 제한](docs/PIPELINE-CLIENTS.md). 선택적으로 별도 터미널의 `axmap monitor`도 제공합니다([사용법](docs/MONITOR.md)).
 
+터미널에서 `axmap view --cwd <저장소>`를 실행하면 관측된 로컬 세션·선점·대기 메시지·최근 이벤트를 카드로 볼 수 있습니다. 화면은 자동 갱신되며 `q` 또는 Esc로 닫습니다. `--once`는 한 번만 출력하고 `--json`은 구조화된 결과를 제공합니다. 등록되지 않은 모든 에이전트나 GitLab 활동까지 표시하는 것은 아닙니다. [화면 사용법](docs/VIEW.md).
+
 ---
 
 ## 변경 기록
