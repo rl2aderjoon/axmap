@@ -1,0 +1,23 @@
+{
+  "agent": "codex-view",
+  "task": null,
+  "intent": "포트폴리오 예시를 실제 세션·선점·편지함으로 보여 주는 터미널 화면 구현",
+  "actor": null,
+  "session": "axmap-view-20261028",
+  "since": "2026-10-28T02:04:59.204Z",
+  "ttlMs": 1800000,
+  "paths": [
+    ".claude/commands/axmap-view.md",
+    "README.ko.md",
+    "README.md",
+    "bin/axmap.mjs",
+    "docs/VIEW.md",
+    "skills/axmap-view/SKILL.md",
+    "src/monitor-cli.mjs",
+    "src/monitor-cli.mts",
+    "src/view.mjs",
+    "src/view.mts",
+    "test/view.test.mjs",
+    "tools/view.mjs"
+  ]
+}
