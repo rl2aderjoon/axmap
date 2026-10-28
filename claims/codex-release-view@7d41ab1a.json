@@ -1,0 +1,26 @@
+{
+  "agent": "codex-release-view",
+  "task": "axmap-view-release",
+  "intent": "뷰 기능 배포 준비",
+  "actor": null,
+  "session": "codex-release-view-20261028",
+  "since": "2026-10-28T06:41:54.144Z",
+  "ttlMs": 1800000,
+  "paths": [
+    ".claude/commands/axmap-view.md",
+    "README.ko.md",
+    "README.md",
+    "bin/axmap.mjs",
+    "docs/VIEW.md",
+    "package-lock.json",
+    "package.json",
+    "skills/axmap-view",
+    "src/monitor-cli.mjs",
+    "src/monitor-cli.mts",
+    "src/view.mjs",
+    "src/view.mts",
+    "test/view.test.mjs",
+    "tools/run-tests.mjs",
+    "tools/view.mjs"
+  ]
+}
