@@ -6,7 +6,7 @@ import path from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { registerHook, bridgeHome, writeJSON, requestResult } from '../src/bridge.mjs'
+import { registerHook, bridgeHome, writeJSON, requestResult, dispatchRequest } from '../src/bridge.mjs'
 import { postMail, collectMail, flushMail } from '../src/session-mailbox.mjs'
 
 let root, cwd, to, args, input, log, saved
@@ -110,6 +110,21 @@ test('unknown submission and interrupted durable intents cannot be sent again', 
   const target = path.join(bridgeHome(), 'mailboxes', `${to}.json`)
   const b = JSON.parse(fs.readFileSync(target)); b.batches[0].state = 'sending'; writeJSON(target, b)
   assert.throws(() => flushMail({ ...args, at: 'checkpoint' }), /불명/)
+})
+
+test('a batch rejected before sending is requeued, not left as unknown', () => {
+  hook('Stop')
+  fs.writeFileSync(path.join(cwd, 'agentapi'), `if(process.argv[2]==='send-message')process.exit(1); console.log('{}')`)
+  const blocker = dispatchRequest({ to, cwd, prompt: 'earlier request' })
+  assert.equal(blocker.state, 'unknown')
+  postMail(args)
+  const r = flushMail({ ...args, at: 'checkpoint' })
+  assert.equal(r.state, 'failed'); assert.equal(r.requeued, 1); assert.match(r.error, /확정되지 않았습니다/)
+  const [m] = collectMail({ ...args, all: true }).messages
+  assert.equal(m.state, 'queued', '보내지 않은 쪽지는 대기열로 돌아온다')
+  assert.equal(collectMail(args).messages.length, 1)
+  assert.equal(collectMail(args).unresolvedBatches.length, 0, '실패 묶음은 다음 전달을 막지 않는다')
+  assert.equal(flushMail({ ...args, at: 'checkpoint' }).state, 'failed', '다시 시도해도 전달 불명으로 막히지 않는다')
 })
 
 test('repo isolation, malformed options and explicit boundary checks fail closed', () => {

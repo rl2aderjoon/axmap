@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { bridgeHome, repoKey, sessions, readJSON, writeJSON, dispatchRequest } from './bridge.mjs';
+import { bridgeHome, repoKey, sessions, readJSON, writeJSON, dispatchRequest, notDelivered } from './bridge.mjs';
 import { withRepoLock } from './repolock.mjs';
 import { errorMessage } from './session-types.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,7 +31,7 @@ function load(target) {
         !['boundary', 'immediate'].includes(m.priority) || !states.includes(m.state) ||
         !Number.isFinite(Date.parse(m.createdAt)) || !Number.isFinite(Date.parse(m.expiresAt))) ||
         b.batches.some(x => !x || !UUID.test(x.id || '') || typeof x.repo !== 'string' || !Array.isArray(x.ids) ||
-            !['sending', 'submitted', 'unknown'].includes(x.state)))
+            !['sending', 'submitted', 'unknown', 'failed'].includes(x.state)))
         throw new Error('받은 편지함 기록이 손상됐습니다. 빈 큐로 바꾸지 않습니다.');
     return b;
 }
@@ -169,22 +169,32 @@ export function flushMail({ to, cwd, at, immediateId }) {
         writeJSON(target, b);
         try {
             const r = dispatchRequest({ to, cwd, from: 'axmap-agent-mailbox', prompt });
-            batch.state = r.state === 'submitted' ? 'submitted' : 'unknown';
+            batch.state = r.state === 'submitted' ? 'submitted' : r.state === 'failed' ? 'failed' : 'unknown';
             batch.requestId = r.id;
             batch.error = r.error;
         }
         catch (e) {
             // A storage error can happen after the provider accepted a request. Even
-            // thrown errors must not put this batch back into an executable queue.
-            batch.state = 'unknown';
+            // thrown errors must not put this batch back into an executable queue —
+            // unless the error came before anything was sent.
+            batch.state = notDelivered(e) ? 'failed' : 'unknown';
             batch.error = errorMessage(e);
         }
-        for (const m of selected) {
-            m.state = batch.state;
-            m.requestId = batch.requestId;
-            m.error = batch.error;
-        }
+        // 확실히 전달되지 않은 묶음의 쪽지는 대기열로 돌려 다음 경계에서 다시 보낼 수 있게 한다.
+        // 자동으로 다시 보내지는 않는다. 묶음 기록은 이력으로 남는다.
+        if (batch.state === 'failed')
+            for (const m of selected) {
+                m.state = 'queued';
+                m.error = batch.error;
+            }
+        else
+            for (const m of selected) {
+                m.state = batch.state;
+                m.requestId = batch.requestId;
+                m.error = batch.error;
+            }
         writeJSON(target, b);
-        return { ...batch, modelInvocationRequested: batch.state === 'submitted', modelInvoked: null };
+        return { ...batch, modelInvocationRequested: batch.state === 'submitted', modelInvoked: null,
+            ...(batch.state === 'failed' ? { requeued: selected.length } : {}) };
     });
 }

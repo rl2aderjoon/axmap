@@ -248,6 +248,10 @@ export function sessionLeasePath(id: string): string {
 }
 
 export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = null }: DispatchOptions): RequestRecord {
+  // 보내기 시작 전에 난 오류(이전 요청 미확정, 대기 미확인 등)는 확실히 전달되지 않은 것이다.
+  // 받은 편지함이 이를 "전달 불명"과 구별해야 쪽지를 다시 대기열로 돌릴 수 있다.
+  let sending = false
+  try {
   if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > 32768) throw new Error('요청 본문은 1~32768바이트여야 합니다.')
   const s = sessionFor(to, cwd)
   const lease = sessionLeasePath(to)
@@ -273,6 +277,7 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
       createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport || '') ? null : s.transcript ? transcript(s).length : 0, state: 'sending' }
     const target = file('requests', request.id)
     writeJSON(target, request)
+    sending = true
     try {
       request.receipt = s.transport === 'console' ? submitConsole(s, request, consolePreflight) : ['pty', 'stdio'].includes(s.transport || '')
         ? terminalRPC(to, { action: 'submit', request })
@@ -294,10 +299,14 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
     writeJSON(target, request)
     return request
   })
+  } catch (e) {
+    if (!sending && e instanceof Error) Object.assign(e, { notDelivered: true })
+    throw e
+  }
 }
 
-/** 연결 전에 실패해 아무것도 보내지 않은 오류만 true. 문구가 아니라 종료 코드로 가른다. */
-const notDelivered = (e: unknown) => e instanceof Error && (e as Error & { notDelivered?: boolean }).notDelivered === true
+/** 연결 전에 실패해 아무것도 보내지 않은 오류만 true. 문구가 아니라 종료 코드나 보내기 전 단계로 가른다. */
+export const notDelivered =(e: unknown) => e instanceof Error && (e as Error & { notDelivered?: boolean }).notDelivered === true
 
 function terminalRPC(id: string, message: unknown): unknown {
   const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'run.mjs'), 'rpc', id], {

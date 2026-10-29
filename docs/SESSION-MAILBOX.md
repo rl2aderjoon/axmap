@@ -60,6 +60,8 @@ MCP는 `ax_message(to,text,priority?,reason?,topic?,key?,ttl_seconds?)`,
 - 전송 의도를 파일에 먼저 기록한다. 전송불명 또는 도중 프로세스 종료의 `sending` 묶음은
   재전송하지 않는다. `ax_mailbox`의 `unresolvedBatches`, 원래 request ID와 `ax_result`로
   조사한다. 자동 재시도·자동 복구는 없으며 수동 확인 없이 잠금/기록을 지우지 않는다.
+- 확실히 전달되지 않은 묶음(파이프 연결 실패, 보내기 전 거절)은 `failed`로 남기고 쪽지를
+  `queued`로 되돌린다. 응답의 `requeued`가 되돌린 수다. 다음 작업 경계의 flush가 다시 보낸다.
 
 받은 편지함은 `AXMAP_STATE_DIR` 또는 `~/.axmap` 아래 `bridge/mailboxes/<UUID>.json`이다.
 수신자별 프로세스 간 잠금과 원자적 파일 교체로 기록을 보존한다. 같은 Git 저장소의 linked

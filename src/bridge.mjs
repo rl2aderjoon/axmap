@@ -303,66 +303,77 @@ export function sessionLeasePath(id) {
     return path.join(bridgeHome(), 'dialogues', `session-${id}.lock`);
 }
 export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = null }) {
-    if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > 32768)
-        throw new Error('요청 본문은 1~32768바이트여야 합니다.');
-    const s = sessionFor(to, cwd);
-    const lease = sessionLeasePath(to);
-    if (fs.existsSync(lease) && readJSON(lease).dialogueId !== dialogueId)
-        throw new Error('이 세션은 자동 대화가 사용 중입니다. 해당 대화가 끝난 뒤 요청하세요.');
-    const dir = path.join(bridgeHome(), 'requests');
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    return withRepoLock(path.join(dir, `${to}.lock`), () => {
+    // 보내기 시작 전에 난 오류(이전 요청 미확정, 대기 미확인 등)는 확실히 전달되지 않은 것이다.
+    // 받은 편지함이 이를 "전달 불명"과 구별해야 쪽지를 다시 대기열로 돌릴 수 있다.
+    let sending = false;
+    try {
+        if (typeof prompt !== 'string' || !prompt.trim() || Buffer.byteLength(prompt) > 32768)
+            throw new Error('요청 본문은 1~32768바이트여야 합니다.');
+        const s = sessionFor(to, cwd);
+        const lease = sessionLeasePath(to);
         if (fs.existsSync(lease) && readJSON(lease).dialogueId !== dialogueId)
-            throw new Error('이 세션은 자동 대화가 사용 중입니다.');
-        for (const n of fs.readdirSync(dir).filter(n => n.endsWith('.json'))) {
-            const previous = readJSON(path.join(dir, n));
-            if (previous.to !== to || !['sending', 'submitted', 'unknown'].includes(previous.state))
-                continue;
-            const latest = previous.state === 'sending' ? previous : requestResult(previous.id, cwd);
-            if (['sending', 'submitted', 'unknown'].includes(latest.state))
-                throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`);
-        }
-        // No fallback to `agy -p` or --conversation: both would start a separate process.
-        let consolePreflight;
-        if (s.transport === 'console') {
-            validateConsolePrompt(prompt, from);
-            consolePreflight = checkConsole(s);
-        }
-        if (!['pty', 'stdio', 'console'].includes(s.transport || '')) {
-            runAPI(s, ['get-conversation-metadata', to]);
-            if (!s.fullyIdle || s.event !== 'Stop')
-                throw new Error('상대 세션의 대기 상태를 아직 확인하지 못했습니다. 작업 종료 훅을 기다리세요.');
-        }
-        const request = { id: randomUUID(), to, from, repo: repoKey(cwd), prompt,
-            createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport || '') ? null : s.transcript ? transcript(s).length : 0, state: 'sending' };
-        const target = file('requests', request.id);
-        writeJSON(target, request);
-        try {
-            request.receipt = s.transport === 'console' ? submitConsole(s, request, consolePreflight) : ['pty', 'stdio'].includes(s.transport || '')
-                ? terminalRPC(to, { action: 'submit', request })
-                : runAPI(s, ['send-message', to, `[axMap request ${request.id}]\n요청자: ${from}\n${prompt}`]);
-            request.state = 'submitted';
-        }
-        catch (e) {
-            if (notDelivered(e)) {
-                // 로컬 파이프에 연결조차 못 했다(ENOENT·ECONNREFUSED). 한 바이트도 보내지
-                // 않았으므로 확실히 전달되지 않았다. unknown 으로 두면 이 세션의 다음 요청이
-                // 전부 막힌다. 자동 재전송은 여전히 하지 않는다.
-                request.state = 'failed';
-                request.error = `전달되지 않았습니다: ${errorMessage(e)}`;
+            throw new Error('이 세션은 자동 대화가 사용 중입니다. 해당 대화가 끝난 뒤 요청하세요.');
+        const dir = path.join(bridgeHome(), 'requests');
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        return withRepoLock(path.join(dir, `${to}.lock`), () => {
+            if (fs.existsSync(lease) && readJSON(lease).dialogueId !== dialogueId)
+                throw new Error('이 세션은 자동 대화가 사용 중입니다.');
+            for (const n of fs.readdirSync(dir).filter(n => n.endsWith('.json'))) {
+                const previous = readJSON(path.join(dir, n));
+                if (previous.to !== to || !['sending', 'submitted', 'unknown'].includes(previous.state))
+                    continue;
+                const latest = previous.state === 'sending' ? previous : requestResult(previous.id, cwd);
+                if (['sending', 'submitted', 'unknown'].includes(latest.state))
+                    throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`);
             }
-            else {
-                // A timeout may occur after delivery. Never retry automatically.
-                request.state = 'unknown';
-                request.error = errorMessage(e);
+            // No fallback to `agy -p` or --conversation: both would start a separate process.
+            let consolePreflight;
+            if (s.transport === 'console') {
+                validateConsolePrompt(prompt, from);
+                consolePreflight = checkConsole(s);
             }
-        }
-        writeJSON(target, request);
-        return request;
-    });
+            if (!['pty', 'stdio', 'console'].includes(s.transport || '')) {
+                runAPI(s, ['get-conversation-metadata', to]);
+                if (!s.fullyIdle || s.event !== 'Stop')
+                    throw new Error('상대 세션의 대기 상태를 아직 확인하지 못했습니다. 작업 종료 훅을 기다리세요.');
+            }
+            const request = { id: randomUUID(), to, from, repo: repoKey(cwd), prompt,
+                createdAt: new Date().toISOString(), baseline: ['pty', 'stdio'].includes(s.transport || '') ? null : s.transcript ? transcript(s).length : 0, state: 'sending' };
+            const target = file('requests', request.id);
+            writeJSON(target, request);
+            sending = true;
+            try {
+                request.receipt = s.transport === 'console' ? submitConsole(s, request, consolePreflight) : ['pty', 'stdio'].includes(s.transport || '')
+                    ? terminalRPC(to, { action: 'submit', request })
+                    : runAPI(s, ['send-message', to, `[axMap request ${request.id}]\n요청자: ${from}\n${prompt}`]);
+                request.state = 'submitted';
+            }
+            catch (e) {
+                if (notDelivered(e)) {
+                    // 로컬 파이프에 연결조차 못 했다(ENOENT·ECONNREFUSED). 한 바이트도 보내지
+                    // 않았으므로 확실히 전달되지 않았다. unknown 으로 두면 이 세션의 다음 요청이
+                    // 전부 막힌다. 자동 재전송은 여전히 하지 않는다.
+                    request.state = 'failed';
+                    request.error = `전달되지 않았습니다: ${errorMessage(e)}`;
+                }
+                else {
+                    // A timeout may occur after delivery. Never retry automatically.
+                    request.state = 'unknown';
+                    request.error = errorMessage(e);
+                }
+            }
+            writeJSON(target, request);
+            return request;
+        });
+    }
+    catch (e) {
+        if (!sending && e instanceof Error)
+            Object.assign(e, { notDelivered: true });
+        throw e;
+    }
 }
-/** 연결 전에 실패해 아무것도 보내지 않은 오류만 true. 문구가 아니라 종료 코드로 가른다. */
-const notDelivered = (e) => e instanceof Error && e.notDelivered === true;
+/** 연결 전에 실패해 아무것도 보내지 않은 오류만 true. 문구가 아니라 종료 코드나 보내기 전 단계로 가른다. */
+export const notDelivered = (e) => e instanceof Error && e.notDelivered === true;
 function terminalRPC(id, message) {
     const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'run.mjs'), 'rpc', id], {
         input: JSON.stringify(message), encoding: 'utf8', windowsHide: true, timeout: 15000,
