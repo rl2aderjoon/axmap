@@ -4,7 +4,7 @@
   "intent": "비git 작업 폴더의 대상 저장소 선택과 세션 생존 확인",
   "actor": null,
   "session": "a22e75d1-775a-4466-834c-65cba99c3c17",
-  "since": "2026-10-29T03:15:15.592Z",
+  "since": "2026-10-29T03:19:18.669Z",
   "ttlMs": 7200000,
   "paths": [
     "README.ko.md",
@@ -28,6 +28,7 @@
     "src/workspace.mjs",
     "src/workspace.mts",
     "test/bridge.test.mjs",
+    "test/session-status.test.mjs",
     "test/workspace.test.mjs",
     "tools/run.mjs"
   ]
