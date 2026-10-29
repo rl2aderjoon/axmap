@@ -76,6 +76,9 @@ const EXPECTED = [
   // 이 파일이 없으면 팀 CI 에서 CLI 가 모듈을 못 찾고 통째로 죽는다.
   'src/update.mjs',
   'src/version.mjs',
+  // Git 밖 작업 폴더의 대상 저장소 판정(D30). `bin/axmap.mjs`·`mcp/server.mjs` 가 static
+  // import 하므로 사본에도 있어야 한다. Node 내장만 import 한다.
+  'src/workspace.mjs',
   'tools/bus.mjs',
   'tools/mr-target.mjs',
   'tools/promote.mjs',

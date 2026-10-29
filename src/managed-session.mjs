@@ -6,11 +6,12 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
-import { bridgeHome, repoKey, writeJSON } from './bridge.mjs';
+import { bridgeHome, hostPipe, repoKey, writeJSON } from './bridge.mjs';
 import { normalizeUsage, usageDelta } from './session-usage.mjs';
 import { errorMessage } from './session-types.mjs';
 import { connectCodexProxy } from './codex-connection.mjs';
-const pipeFor = (id) => process.platform === 'win32' ? `\\\\.\\pipe\\axmap-${id}` : path.join(bridgeHome(), `${id}.sock`);
+// 생존 확인(bridge.sessions)이 같은 이름을 보도록 한 곳에서 만든다.
+const pipeFor = hostPipe;
 const uuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
 export async function startManagedSession({ provider, executable = provider, prefix = [], args = null, model, role = '', existingThreadId, socketPath, observeActive = false, cwd = process.cwd(), maxTokens = 100000, timeoutMs = 120000, onEvent = () => { } }) {
     if (!['codex', 'agy'].includes(provider))
@@ -24,7 +25,7 @@ export async function startManagedSession({ provider, executable = provider, pre
     const id = randomUUID(), token = randomBytes(32).toString('hex');
     const sessionPath = path.join(bridgeHome(), 'sessions', `${id}.json`);
     const s = { id, token, provider, transport: 'stdio', role, model: model || null,
-        workspaces: [path.resolve(cwd)], repos: [repoKey(cwd)], state: 'starting', fullyIdle: false,
+        workspaces: [path.resolve(cwd)], repos: [repoKey(cwd)], state: 'starting', fullyIdle: false, hostPid: process.pid,
         registeredAt: new Date().toISOString(), usage: null, usageKnown: true, maxTokens };
     const jobs = new Map();
     let attachedUsageOrigin = null;

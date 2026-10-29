@@ -46,6 +46,7 @@ import path from 'node:path'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { syncConfiguredProfile } from '../src/identity.mjs'
+import { resolveTarget } from '../src/workspace.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -77,13 +78,25 @@ let rootsTask = null
 let rootsGeneration = 0
 let rootRequestId = 0
 const pendingRoots = new Map()
-let REPO = resolveRepo()
-
-function gitRoot(cwd) {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', windowsHide: true })
-  const top = r.status === 0 ? (r.stdout ?? '').trim() : ''
-  return top ? fs.realpathSync(top) : null
+/**
+ * 🔴 시작 폴더가 여러 저장소를 담은 작업 폴더라 모호하면 여기서 죽지 않는다.
+ *    서버가 떠야 도구 호출이 그 모호함과 고르는 방법을 에이전트에게 알려 줄 수 있다.
+ *    대상은 도구를 부를 때마다 다시 정하므로, 사람이 `.axmap.json` 을 쓰면 다음
+ *    호출부터 바로 따른다.
+ */
+let REPO
+try { REPO = resolveRepo() } catch (e) {
+  REPO = process.cwd()
+  process.stderr.write(`axMap MCP: 대상 저장소를 아직 정하지 못했습니다.\n${e.message}\n`)
 }
+
+/**
+ * 폴더 → 대상 저장소. 위로 찾기(Git 안)를 먼저 하고, Git 밖이면 작업 폴더 규칙
+ * (`.axmap.json` 수동 설정 → 바로 아래 저장소 자동 탐색 → 모호하면 오류)을 쓴다.
+ * 규칙은 `src/workspace.mjs` 한 곳에 있다 — CLI·로컬 세션 연결과 같은 답을 내야 한다.
+ * 저장소가 없으면 null, 모호하거나 판정하지 못하면 예외다.
+ */
+function gitRoot(cwd) { return resolveTarget(cwd) }
 
 /** Explicit pin > per-call cwd > client roots > launch cwd.
  * A global desktop selection must never redirect another CLI session. */
@@ -111,7 +124,9 @@ function resolveRepo(args = {}) {
       return top
     }))]
     if (dirs.length === 1) return dirs[0]
-    const launched = gitRoot(process.cwd())
+    // 시작 폴더는 여러 roots 중 하나를 고르는 근거로만 쓴다. 판정하지 못하면 근거가 없는 것이다.
+    let launched = null
+    try { launched = gitRoot(process.cwd()) } catch { /* 고를 근거 없음 → 아래 오류 */ }
     if (dirs.includes(launched)) return launched
     throw new Error('작업 저장소를 하나로 정할 수 없습니다. 도구의 cwd 에 작업 폴더 절대 경로를 지정하세요.')
   }

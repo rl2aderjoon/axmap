@@ -75,6 +75,14 @@
 
 MCP 타겟은 `AXMAP_REPO` → 도구의 절대 경로 `cwd` → 클라이언트 roots → 시작 repo 순이다. 전역 앱 타겟으로 다른 세션을 전환하지 않는다. roots 변경을 받으면 갱신을 기다린 뒤 전환하며 이전 repo의 해당 세션 claim만 반납한다. roots를 읽지 못하거나 여러 repo 중 하나로 고를 수 없으면 요청을 중단한다. 상세 근거는 [D22](DECISIONS.md#d22--작업-repo를-세션별로-따라가고-장부를-자동-준비한다).
 
+위 순서로 정한 폴더가 Git 밖이면 `src/workspace.mjs`가 다음 순서로 정한다 ([D30](DECISIONS.md#d30--git-저장소가-아닌-작업-폴더에서-대상-저장소를-세-갈래로-정한다)). MCP 서버·로컬 세션 연결(`repoKey`)·CLI 장부 명령이 같은 모듈을 쓰고 결과를 캐시하지 않는다.
+
+1. 그 폴더와 조상의 `.axmap.json`: `{ "repo": "<설정 파일 기준 상대 경로 또는 절대 경로>" }`. 파싱 실패·`repo` 없음·Git 저장소 아님은 오류다.
+2. 바로 아래 폴더 중 `.git`이 있는 것(숨김 폴더·`node_modules` 제외)을 `git rev-parse --git-common-dir`의 실제 경로(Windows는 대소문자 무시)로 묶는다. 묶음이 하나면 공통 디렉터리 `.git`의 부모(메인 체크아웃)를, 그 부모가 체크아웃이 아니면 첫 worktree를 쓴다. `.git`이 있는데 git이 읽지 못한 폴더가 하나라도 있으면 오류다.
+3. 묶음이 둘 이상이면 후보 저장소와 폴더 이름, `cwd`·`.axmap.json`·`axmap workspace use`를 적은 오류다. 묶음이 없으면 기존처럼 Git 저장소가 아니다.
+
+CLI의 장부 명령(`init`·`claim`·`release`·`renew`·`status`·`audit`·`doctor`·`hook`·`bus` 등)은 현재 폴더나 조상에 `.git`이 없을 때만 위 판정을 하고 선택된 저장소 최상위로 옮겨 실행한다. `axmap workspace show [폴더] [--json]`은 판정과 이유를 출력하며 모호하면 종료 코드 2다. `axmap workspace use <저장소 폴더>`는 현재 폴더의 `.axmap.json`에 `repo`만 바꿔 적고, 읽지 못한 기존 파일은 덮어쓰지 않는다.
+
 공통 디렉터리의 이름이 `.git` 이 아닌 배치(bare 저장소의 worktree, `--git-dir` 을 손으로
 준 경우)에서는 부모를 짚지 않고 `--show-toplevel` 을 그대로 쓴다. 그 부모는 저장소 바깥이다.
 

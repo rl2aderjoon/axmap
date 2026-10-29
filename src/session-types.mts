@@ -4,6 +4,11 @@ export type Transport = 'console' | 'stdio' | 'pty' | 'agentapi'
 export type SessionState = 'starting' | 'running' | 'idle' | 'awaiting_user' | 'settling' | 'closed' | 'unknown'
 export type RequestState = 'sending' | 'submitted' | 'unknown' | 'completed' | 'failed' | 'superseded'
 export type ConnectionState = 'connected' | 'closed' | 'unreachable' | 'unverified'
+/** 관리형 세션 호스트의 생존. unverified 는 "확인하지 못함"이며 살아 있음도 죽음도 아니다. */
+export type HostLiveness = 'alive' | 'dead' | 'unverified'
+/** `run.mjs rpc` 가 로컬 파이프에 연결조차 못 했을 때(ENOENT·ECONNREFUSED)의 종료 코드.
+ * 이 경우에만 요청이 확실히 전달되지 않았다고 판단한다. */
+export const RPC_NOT_DELIVERED_EXIT = 3
 export type HookEvent = 'SessionStart' | 'PreInvocation' | 'Stop'
 
 export interface Usage {
@@ -38,9 +43,12 @@ export interface SessionRecord {
   executable?: string
   address?: string
   token?: string
+  /** 로컬 파이프를 연 `bridge serve`·`run` 프로세스. 비 Windows 생존 확인에 쓴다. */
+  hostPid?: number
+  closedReason?: string
 }
 export type PublicSession = Pick<SessionRecord, 'id' | 'provider' | 'workspaces' | 'model' | 'transport' |
-  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval' | 'conversationId'>
+  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval' | 'conversationId'> & { liveness?: HostLiveness }
 export interface SessionSnapshot extends PublicSession {
   lastKnownState: SessionState | null
   state: SessionState

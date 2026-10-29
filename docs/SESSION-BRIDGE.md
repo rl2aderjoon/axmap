@@ -127,6 +127,19 @@ MCP 메시지를 받아 임의로 새로운 모델 프로세스를 실행하지 
 `ax_sessions`는 기존 등록 목록 조회를 유지한다. `connected`는 로컬 호스트의 응답이며 모델 서비스의
 정상 동작을 보장하지 않는다. 이 명령은 현재 저장소에 등록된 세션만 조회한다.
 
+`bridge serve`·`run` 호스트가 종료 처리 없이 끝나면 기록이 `idle`로 남는다. 그래서 `sessions`·
+`ax_sessions`·`bridge status`는 조회 때 관리형 세션의 로컬 파이프가 있는지 본다. Windows는 열린
+파이프 이름 목록, 그 밖은 소켓 파일과 기록된 호스트 pid(`hostPid`)로 판단하며 연결 요청은 보내지
+않는다. 파이프가 없으면 `state: closed`, `fullyIdle: false`로 기록을 고치고 `liveness: dead`를 붙인다.
+확인하지 못하면(목록을 못 읽음, pid 없는 이전 기록) `liveness: unverified`이며 대기로 보고하지 않는다.
+
+요청 전송이 로컬 파이프 연결 단계에서 ENOENT·ECONNREFUSED로 실패하면 아무것도 보내지 않았으므로
+요청을 `failed`로 기록하고 다음 요청을 막지 않는다. `tools/run.mjs rpc`는 이 경우만 종료 코드 3으로
+알리며, 연결 뒤의 오류와 시간 초과는 지금처럼 `unknown`이다 (D30).
+
+Git 저장소가 아닌 작업 폴더에서 `bridge serve`를 시작해도 D30의 규칙으로 정한 저장소에 등록된다.
+세션의 작업 폴더(`workspaces`)는 시작한 폴더 그대로다.
+
 ## 비용·종료·사용자 입력
 
 - 기본 대화 한도는 최대 4회 모델 실행, 처리 토큰 50000, 메시지 2000자다. `--max-turns`,

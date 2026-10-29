@@ -7,7 +7,7 @@ import net from 'node:net'
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { bridgeHome, repoKey, readJSON, writeJSON } from './bridge.mjs'
+import { bridgeHome, hostPipe, repoKey, readJSON, writeJSON } from './bridge.mjs'
 import { errorCode, errorMessage } from './session-types.mjs'
 import type { IPty } from 'node-pty'
 import type { Provider, SessionRecord, LocalMessage, JobRecord, RequestState, TranscriptEntry } from './session-types.mjs'
@@ -25,8 +25,8 @@ const sessionFile = (id: string) => {
   if (!validID(id)) throw new Error('잘못된 터미널 세션 ID입니다.')
   return path.join(bridgeHome(), 'sessions', `${id}.json`)
 }
-const pipeFor = (id: string) => process.platform === 'win32'
-  ? `\\\\.\\pipe\\axmap-${id}` : path.join(bridgeHome(), `${id}.sock`)
+// 생존 확인(bridge.sessions)이 같은 이름을 보도록 한 곳에서 만든다.
+const pipeFor = hostPipe
 
 export function sendTerminal(id: string, message: LocalMessage, token: string | null = null, { timeoutMs = 10000 } = {}): Promise<unknown> {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('양의 응답 시간 한도가 필요합니다.')
@@ -35,11 +35,16 @@ export function sendTerminal(id: string, message: LocalMessage, token: string | 
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pipeFor(id))
     socket.setEncoding('utf8')
-    let buffer = ''
+    let buffer = '', connected = false
     const fail = (e: Error) => { socket.destroy(); reject(e) }
     socket.setTimeout(timeoutMs, () => fail(new Error('로컬 세션 응답 시간 초과. 자동 재전송하지 마세요.')))
-    socket.on('error', fail)
-    socket.on('connect', () => socket.write(JSON.stringify({ ...message, token: token || s.token }) + '\n'))
+    socket.on('error', e => {
+      // 연결 전의 ENOENT(파이프·소켓 없음)·ECONNREFUSED(듣는 쪽 없음)는 아무것도 쓰지
+      // 않았다는 증거다. 연결 뒤의 오류는 요청이 이미 건너갔을 수 있어 구별해 둔다.
+      if (!connected && ['ENOENT', 'ECONNREFUSED'].includes(errorCode(e) || '')) Object.assign(e, { notDelivered: true })
+      fail(e)
+    })
+    socket.on('connect', () => { connected = true; socket.write(JSON.stringify({ ...message, token: token || s.token }) + '\n') })
     socket.on('data', chunk => {
       buffer += chunk
       if (Buffer.byteLength(buffer) > 1024 * 1024) return fail(new Error('로컬 응답 크기 제한 초과'))
@@ -59,7 +64,7 @@ export async function startTerminal({ executable, args = [], provider, cwd = pro
   const { spawn } = await import('node-pty')
   const id = randomUUID(), token = randomBytes(32).toString('hex')
   const s: SessionRecord = { id, provider, transport: 'pty', token, workspaces: [cwd], repos: [repoKey(cwd)],
-    state: 'starting', fullyIdle: false, registeredAt: new Date().toISOString(), event: 'launch' }
+    state: 'starting', fullyIdle: false, registeredAt: new Date().toISOString(), event: 'launch', hostPid: process.pid }
   const jobs = new Map<string, JobRecord>()
   let pending: JobRecord | null = null, draft = false, term: IPty, closed = false, stopTimer: NodeJS.Timeout | undefined
   const save = () => { s.registeredAt = new Date().toISOString(); writeJSON(sessionFile(id), s) }

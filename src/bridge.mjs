@@ -9,7 +9,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { withRepoLock } from './repolock.mjs';
 import { submitConsole, checkConsole, validateConsolePrompt, findConsoleTranscript, externalStatus } from './external-console.mjs';
-import { errorCode, errorMessage } from './session-types.mjs';
+import { errorCode, errorMessage, RPC_NOT_DELIVERED_EXIT } from './session-types.mjs';
+import { commonKey, resolveTarget } from './workspace.mjs';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bridgeHome = () => path.join(process.env.AXMAP_STATE_DIR || path.join(os.homedir(), '.axmap'), 'bridge');
@@ -45,14 +46,23 @@ function writeJSON(p, data) {
             fs.unlinkSync(tmp);
     }
 }
-function repoKey(cwd) {
+function commonDirKey(cwd) {
     const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
         cwd, encoding: 'utf8', windowsHide: true,
     });
-    if (r.status !== 0)
+    return r.status === 0 ? commonKey(fs.realpathSync(r.stdout.trim())) : null;
+}
+function repoKey(cwd) {
+    // Git 안이면 지금까지와 같은 한 번의 git 호출로 끝낸다. 실패했을 때만 작업 폴더
+    // 규칙(수동 설정 → 자식 저장소 자동 탐색 → 모호하면 오류)으로 대상 저장소를 정한다.
+    const direct = commonDirKey(cwd);
+    if (direct)
+        return direct;
+    const repo = resolveTarget(cwd);
+    const key = repo && commonDirKey(repo);
+    if (!key)
         throw new Error(`Git 작업 저장소를 확인하지 못했습니다: ${cwd}`);
-    const key = fs.realpathSync(r.stdout.trim());
-    return process.platform === 'win32' ? key.toLowerCase() : key;
+    return key;
 }
 function addressError(address) {
     // Only a loopback address exported by a local provider hook is accepted.
@@ -98,20 +108,96 @@ function transcript(session) {
     lines.pop();
     return lines.filter(s => s.trim()).map(s => JSON.parse(s));
 }
-function publicSession(s) {
+function publicSession(s, liveness) {
     return { id: s.id, provider: s.provider, workspaces: s.workspaces, model: s.model,
         conversationId: s.conversationId,
         transport: s.transport || 'agentapi', state: s.state, pid: s.pid,
-        registeredAt: s.registeredAt, event: s.event, fullyIdle: s.fullyIdle,
-        role: s.role, usage: s.usage, usageKnown: s.usageKnown, maxTokens: s.maxTokens, pendingApproval: s.pendingApproval };
+        registeredAt: s.registeredAt, event: s.event,
+        // 호스트가 살아 있는지 확인하지 못했으면 저장된 "대기"를 대기로 보고하지 않는다.
+        fullyIdle: liveness === 'unverified' ? false : s.fullyIdle,
+        role: s.role, usage: s.usage, usageKnown: s.usageKnown, maxTokens: s.maxTokens, pendingApproval: s.pendingApproval,
+        ...(liveness ? { liveness } : {}) };
+}
+/** 관리형 세션(pty·stdio)의 로컬 제어 파이프. 세션 호스트가 살아 있는 동안만 존재한다. */
+export const hostPipe = (id) => process.platform === 'win32' ? `\\\\.\\pipe\\axmap-${id}` : path.join(bridgeHome(), `${id}.sock`);
+/** Windows 의 열린 파이프 이름 목록. 읽지 못하면 오류 자체를 돌려준다 —
+ * "목록에 없음"과 "목록을 못 읽음"을 같은 것으로 보면 산 세션을 닫힘으로 적는다. */
+function openPipes() {
+    try {
+        return new Set(fs.readdirSync('\\\\.\\pipe\\').map(n => n.toLowerCase()));
+    }
+    catch (e) {
+        return e instanceof Error ? e : new Error(String(e));
+    }
+}
+/**
+ * 저장된 상태가 아니라 호스트가 실제로 살아 있는지. 연결 요청은 보내지 않는다.
+ *
+ * `bridge serve` 가 강제 종료되면 종료 처리(state: closed)를 쓰지 못해 기록이
+ * 영원히 `idle` 로 남는다 (실측: 세션 d3cde187, 파이프 없음). 파이프는 호스트가
+ * listen 한 뒤에만 기록을 쓰므로, 파이프가 없다는 것은 호스트가 끝났다는 뜻이다.
+ *   Windows : 파이프 이름 목록에 없으면 dead, 목록을 못 읽으면 unverified
+ *   그 밖   : 소켓 파일이 없으면 dead. 있으면 기록된 호스트 pid 로 판단하고,
+ *             pid 가 없으면(이전 버전 기록) unverified — 남은 소켓 파일만으로는 모른다.
+ */
+function hostLiveness(s, pipes) {
+    if (process.platform === 'win32') {
+        const listed = pipes();
+        if (listed instanceof Error)
+            return 'unverified';
+        return listed.has(`axmap-${s.id}`.toLowerCase()) ? 'alive' : 'dead';
+    }
+    try {
+        fs.statSync(hostPipe(s.id));
+    }
+    catch (e) {
+        return errorCode(e) === 'ENOENT' ? 'dead' : 'unverified';
+    }
+    if (!Number.isSafeInteger(s.hostPid) || s.hostPid <= 0)
+        return 'unverified';
+    try {
+        process.kill(s.hostPid, 0);
+        return 'alive';
+    }
+    catch (e) {
+        return errorCode(e) === 'ESRCH' ? 'dead' : errorCode(e) === 'EPERM' ? 'alive' : 'unverified';
+    }
+}
+function markClosed(target, s) {
+    // 호스트가 끝난 뒤 기록을 바꾸는 쪽은 여기뿐이지만, 막 종료 처리 중인 호스트가 더
+    // 최신 기록(사용량 등)을 썼을 수 있어 다시 읽고 바꾼다.
+    let latest = s;
+    try {
+        latest = readJSON(target);
+    }
+    catch { /* 아래에서 읽은 기록으로 표시만 한다 */ }
+    if (latest.state === 'closed')
+        return latest;
+    const closed = { ...latest, state: 'closed', fullyIdle: false,
+        closedReason: '세션 호스트의 로컬 연결 파이프가 없습니다. 정상 종료 처리 없이 끝난 것으로 보입니다.' };
+    // 저장에 실패해도 이번 조회에는 닫힘으로 보고한다. 다음 조회가 다시 시도한다.
+    try {
+        writeJSON(target, closed);
+    }
+    catch { /* 위와 같다 */ }
+    return closed;
 }
 export function sessions(cwd) {
     const dir = path.join(bridgeHome(), 'sessions');
     if (!fs.existsSync(dir))
         return [];
     const repo = repoKey(cwd);
+    let pipes;
+    const listPipes = () => (pipes ??= openPipes());
     return fs.readdirSync(dir).filter(n => UUID.test(n.replace(/\.json$/, '')) && n.endsWith('.json'))
-        .map(n => readJSON(path.join(dir, n))).filter(s => s.repos.includes(repo)).map(publicSession);
+        .map(n => [path.join(dir, n), readJSON(path.join(dir, n))])
+        .filter(([, s]) => s.repos.includes(repo))
+        .map(([target, s]) => {
+        if (!['pty', 'stdio'].includes(s.transport || '') || s.state === 'closed')
+            return publicSession(s);
+        const liveness = hostLiveness(s, listPipes);
+        return liveness === 'dead' ? publicSession(markClosed(target, s), 'dead') : publicSession(s, liveness);
+    });
 }
 function sessionFor(id, cwd) {
     const s = readJSON(file('sessions', id));
@@ -258,18 +344,33 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
             request.state = 'submitted';
         }
         catch (e) {
-            // A timeout may occur after delivery. Never retry automatically.
-            request.state = 'unknown';
-            request.error = errorMessage(e);
+            if (notDelivered(e)) {
+                // 로컬 파이프에 연결조차 못 했다(ENOENT·ECONNREFUSED). 한 바이트도 보내지
+                // 않았으므로 확실히 전달되지 않았다. unknown 으로 두면 이 세션의 다음 요청이
+                // 전부 막힌다. 자동 재전송은 여전히 하지 않는다.
+                request.state = 'failed';
+                request.error = `전달되지 않았습니다: ${errorMessage(e)}`;
+            }
+            else {
+                // A timeout may occur after delivery. Never retry automatically.
+                request.state = 'unknown';
+                request.error = errorMessage(e);
+            }
         }
         writeJSON(target, request);
         return request;
     });
 }
+/** 연결 전에 실패해 아무것도 보내지 않은 오류만 true. 문구가 아니라 종료 코드로 가른다. */
+const notDelivered = (e) => e instanceof Error && e.notDelivered === true;
 function terminalRPC(id, message) {
     const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'run.mjs'), 'rpc', id], {
         input: JSON.stringify(message), encoding: 'utf8', windowsHide: true, timeout: 15000,
     });
+    // 시간 초과(r.error)나 그 밖의 실패는 연결 뒤에 났을 수 있어 전달 여부를 모른다.
+    if (!r.error && r.status === RPC_NOT_DELIVERED_EXIT) {
+        throw Object.assign(new Error(r.stderr?.trim() || '로컬 세션 파이프에 연결하지 못했습니다.'), { notDelivered: true });
+    }
     if (r.error || r.status !== 0)
         throw new Error(r.error?.message || r.stderr?.trim() || '터미널 세션에 연결하지 못했습니다.');
     return JSON.parse(r.stdout);

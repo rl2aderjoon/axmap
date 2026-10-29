@@ -4,6 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { startTerminal, sendTerminal, installTerminalHooks, installTerminalRuntime } from '../src/terminal-bridge.mjs'
 import { registerExternalHook } from '../src/external-console.mjs'
+import { RPC_NOT_DELIVERED_EXIT } from '../src/session-types.mjs'
 
 const [command, ...args] = process.argv.slice(2)
 try {
@@ -12,7 +13,13 @@ try {
   } else if (command === 'install-hooks') {
     console.log(JSON.stringify({ hooks: [installTerminalHooks(), installTerminalHooks(undefined, 'codex')] }))
   } else if (command === 'rpc') {
-    console.log(JSON.stringify(await sendTerminal(args[0], JSON.parse(fs.readFileSync(0, 'utf8')))))
+    try { console.log(JSON.stringify(await sendTerminal(args[0], JSON.parse(fs.readFileSync(0, 'utf8'))))) }
+    catch (e) {
+      if (e?.notDelivered !== true) throw e
+      // 연결 전에 실패해 아무것도 보내지 않았다. 호출한 쪽(bridge.terminalRPC)이
+      // 문구가 아니라 종료 코드로 "확실히 미전달"을 알아보게 한다.
+      console.error(e.message); process.exitCode = RPC_NOT_DELIVERED_EXIT
+    }
   } else if (command === 'hook') {
     const input = JSON.parse(fs.readFileSync(0, 'utf8'))
     if (process.env.AXMAP_TERMINAL_SESSION && process.env.AXMAP_TERMINAL_TOKEN) {

@@ -48,6 +48,7 @@ import { homeRegistrations } from '../src/mcpstate.mjs'
 import { compareBranchFor, formatOverlap } from '../src/overlap.mjs'
 import { withRepoLock } from '../src/repolock.mjs'
 import { readProfile, syncConfiguredProfile } from '../src/identity.mjs'
+import { inspectTarget, ambiguityMessage, describeTarget, writeWorkspaceChoice } from '../src/workspace.mjs'
 
 /** 이 CLI 가 들어 있는 axMap 폴더. 갱신 확인과 setup 이 자기 위치를 알아야 한다. */
 const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -2806,6 +2807,62 @@ function warnIfStale() {
 }
 
 // ---------------------------------------------------------------------------
+// 명령: workspace  (Git 저장소가 아닌 작업 폴더에서 대상 저장소를 보고 정한다)
+// ---------------------------------------------------------------------------
+
+/**
+ * 장부를 쓰는 명령은 Git 저장소 안에서 돈다. 터미널이 여러 저장소(worktree)를 담은
+ * 작업 폴더에서 열렸으면 MCP 서버·로컬 세션 연결과 **같은 규칙**(src/workspace.mjs)으로
+ * 대상 저장소를 정하고 그 최상위로 옮겨서 실행한다. 선점 경로는 저장소 기준 경로다.
+ *
+ * 🔴 빠른 길: 지금 폴더나 조상에 `.git` 이 있으면 git 을 한 번도 더 띄우지 않고
+ *    지금까지와 똑같이 돈다. 거의 모든 명령이 여기를 지나므로 Git 안의 사용자에게
+ *    비용을 늘리지 않는다 (ledgerlock 테스트의 시간 창이 그 비용에 민감하다).
+ */
+const WORKSPACE_COMMANDS = new Set(['init', 'bus-repair', 'users-repair', 'claim', 'release', 'renew', 'status', 'audit', 'doctor', 'hook', 'bus'])
+
+function insideGitMarker(dir) {
+  for (let at = path.resolve(dir); ; at = path.dirname(at)) {
+    if (fs.existsSync(path.join(at, '.git'))) return true
+    if (path.dirname(at) === at) return false
+  }
+}
+
+function enterWorkspaceTarget(name) {
+  if (!WORKSPACE_COMMANDS.has(name) || process.env.GIT_DIR || insideGitMarker(process.cwd())) return
+  let r
+  try { r = inspectTarget(process.cwd()) } catch (e) { die(e.message) }
+  if (r.kind === 'ambiguous') die(ambiguityMessage(r))
+  if (r.kind !== 'manual' && r.kind !== 'auto') return // 저장소 없음 → 기존 안내(repoRoot)
+  console.error(`axMap: 작업 폴더가 Git 저장소가 아니라 ${r.kind === 'manual' ? '수동 설정' : '자동 탐색'}으로 ${r.repo} 를 대상으로 합니다.`)
+  process.chdir(r.repo)
+}
+
+function cmdWorkspace(rest, flags) {
+  const [sub, target] = rest
+  if (sub === 'show') {
+    let r
+    try { r = inspectTarget(target ? path.resolve(target) : process.cwd()) } catch (e) { die(e.message) }
+    if (boolFlag(flags.json, 'json')) {
+      const out = { kind: r.kind, from: r.from, repo: r.repo ?? null, config: r.config ?? null,
+        candidates: r.kind === 'ambiguous' ? r.groups.map(g => ({ repo: g.target, folders: g.members.map(m => m.name) }))
+          : r.kind === 'auto' ? [{ repo: r.group.target, folders: r.group.members.map(m => m.name) }] : [] }
+      console.log(JSON.stringify(out, null, 2))
+    } else console.log(describeTarget(r))
+    // 모호함은 "아직 정하지 않았다" 는 결과라 성공으로 세지 않는다.
+    process.exit(r.kind === 'ambiguous' ? 2 : 0)
+  }
+  if (sub === 'use') {
+    if (!target) die('사용법: axmap workspace use <저장소 폴더>')
+    let w
+    try { w = writeWorkspaceChoice(process.cwd(), target) } catch (e) { die(e.message) }
+    console.log(`${w.config} 에 저장했습니다: { "repo": "${w.value}" }\n대상 저장소: ${w.repo}\nMCP 서버는 다음 도구 호출부터 따릅니다. 다시 켤 필요가 없습니다.`)
+    return
+  }
+  die('사용법: axmap workspace show [폴더] [--json] | axmap workspace use <저장소 폴더>')
+}
+
+// ---------------------------------------------------------------------------
 
 const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
 
@@ -2827,6 +2884,9 @@ const HELP = `axmap - AI 에이전트 작업 선점 프로토콜
                                         [--checkpoint  통과하면 "여기까지 봤다" 를 남긴다]
   axmap doctor                       이 PC 에서 선점이 실제로 도는지 점검  [--json]
   axmap hook install                 verify 를 pre-commit 훅으로 설치
+  axmap workspace show [폴더]        Git 저장소가 아닌 작업 폴더에서 어느 저장소를 겨누는지와 이유
+                                        [--json]  (수동 설정 · 자동 탐색 · 모호함 + 후보)
+  axmap workspace use <저장소 폴더>  그 선택을 이 폴더의 .axmap.json 에 적는다
   axmap update                       새 버전이 있는지 묻는다 (바꾸지는 않는다)
   axmap --version                    지금 도는 판 번호를 찍는다 (아래 version 명령과 다르다)
 
@@ -2878,7 +2938,12 @@ if (boolFlag(flags.version, 'version') && !cmd) {
   process.exit(0)
 }
 
+enterWorkspaceTarget(cmd)
+
 switch (cmd) {
+  case 'workspace':
+    cmdWorkspace(rest, flags)
+    break
   // 이름을 경로로 바꿔 주는 것들 (RUNNERS). 인자는 손대지 않고 그대로 간다.
   case 'setup':
   case 'bridge':

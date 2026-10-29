@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { dispatchRequest, installHooks, registerHook, requestResult, waitForRequest, sessions, uninstallHooks, writeJSON } from '../src/bridge.mjs'
+import { dispatchRequest, installHooks, registerHook, repoKey, requestResult, waitForRequest, sessions, uninstallHooks, writeJSON } from '../src/bridge.mjs'
 
 let root, repo, id, log, input, saved
 const oldEnv = () => ({ AXMAP_STATE_DIR: process.env.AXMAP_STATE_DIR, AXMAP_AGY_HOME: process.env.AXMAP_AGY_HOME })
@@ -170,4 +170,60 @@ test('installer preserves other hooks, backs up exact bytes and runs the Windows
   fs.writeFileSync(configFile, '{broken')
   assert.throws(() => installHooks({ executable: process.execPath, home }))
   assert.equal(fs.readFileSync(configFile, 'utf8'), '{broken')
+})
+
+const pipeOf = sid => process.platform === 'win32' ? `\\\\.\\pipe\\axmap-${sid}` : path.join(process.env.AXMAP_STATE_DIR, 'bridge', `${sid}.sock`)
+const managedRecord = (sid, extra = {}) => ({ id: sid, provider: 'codex', transport: 'stdio', token: 'local-test-token',
+  workspaces: [repo], repos: [repoKey(repo)], state: 'idle', fullyIdle: true, registeredAt: new Date().toISOString(), ...extra })
+const sessionPath = sid => path.join(process.env.AXMAP_STATE_DIR, 'bridge', 'sessions', `${sid}.json`)
+
+/** dispatchRequest 는 동기 호출이라 같은 프로세스의 서버는 응답할 수 없다. 별도 프로세스로 띄운다. */
+async function fakeHost(sid) {
+  fs.mkdirSync(path.join(process.env.AXMAP_STATE_DIR, 'bridge'), { recursive: true })
+  const code = `
+    const net = require('node:net');
+    const server = net.createServer(s => { s.setEncoding('utf8'); let b = '';
+      s.on('error', () => {});
+      s.on('data', c => { b += c; if (b.includes('\\n')) s.end(JSON.stringify({ result: { accepted: true } }) + '\\n') }) });
+    server.listen(process.argv[1], () => console.log('ready'));
+    process.stdin.on('end', () => server.close(() => process.exit(0))); process.stdin.resume();`
+  const child = spawn(process.execPath, ['-e', code, pipeOf(sid)], { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
+  await new Promise((resolve, reject) => { child.stdout.once('data', resolve); child.once('exit', reject) })
+  return { pid: child.pid, stop: () => new Promise(resolve => { child.once('exit', resolve); child.stdin.end() }) }
+}
+
+test('호스트가 강제 종료돼 파이프가 없는 대기 세션은 종료로 보고하고 기록도 고친다', async () => {
+  const dead = randomUUID(), alive = randomUUID()
+  writeJSON(sessionPath(dead), managedRecord(dead))
+  const host = await fakeHost(alive)
+  try {
+    writeJSON(sessionPath(alive), managedRecord(alive, { hostPid: host.pid }))
+    const listed = Object.fromEntries(sessions(repo).map(s => [s.id, s]))
+    assert.equal(listed[dead].state, 'closed')
+    assert.equal(listed[dead].fullyIdle, false)
+    assert.equal(listed[dead].liveness, 'dead')
+    const saved = JSON.parse(fs.readFileSync(sessionPath(dead), 'utf8'))
+    assert.equal(saved.state, 'closed', '다음 조회와 다른 도구도 종료를 보도록 기록을 고친다')
+    assert.equal(saved.fullyIdle, false)
+    assert.equal(listed[alive].state, 'idle')
+    assert.equal(listed[alive].liveness, 'alive')
+    assert.equal(listed[alive].fullyIdle, true)
+    assert.ok(!JSON.stringify(listed).includes('local-test-token'))
+  } finally { await host.stop() }
+})
+
+test('파이프에 연결조차 못 한 요청은 failed 이고 다음 요청을 막지 않는다', async () => {
+  const sid = randomUUID()
+  writeJSON(sessionPath(sid), managedRecord(sid))
+  const first = dispatchRequest({ to: sid, prompt: 'hello', cwd: repo })
+  assert.equal(first.state, 'failed', first.error)
+  assert.match(first.error, /전달되지 않았습니다/)
+  assert.match(first.error, /ENOENT|ECONNREFUSED/)
+  const host = await fakeHost(sid)
+  try {
+    const second = dispatchRequest({ to: sid, prompt: 'again', cwd: repo })
+    assert.equal(second.state, 'submitted', second.error)
+    // 연결된 뒤 아직 확정되지 않은 요청은 여전히 다음 요청을 막는다 (자동 재전송 금지 유지).
+    assert.throws(() => dispatchRequest({ to: sid, prompt: 'third', cwd: repo }), /이전 요청/)
+  } finally { await host.stop() }
 })
