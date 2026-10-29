@@ -31,6 +31,21 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.9.0
+
+<sub>October 29, 2026</sub>
+
+**Find the repository from a workspace folder, report dead local sessions, and retire in-repository copies of axMap.**
+
+- When the working folder is not inside Git, axMap picks the target repository in this order: a manual `.axmap.json` (`{ "repo": "<path>" }`), then automatic discovery of child folders that all belong to one repository (worktrees included). If child folders belong to different repositories, axMap does not guess; it lists the candidates. `axmap workspace show` explains the choice and `axmap workspace use <repo>` records it. The choice is re-evaluated on every call, so no restart is needed.
+- Managed sessions whose local pipe no longer exists are reported as `closed` instead of idle. Sessions that cannot be checked are marked `liveness: unverified` and are not reported as idle.
+- Requests that could not even connect to the local pipe, or were rejected before sending, are recorded as `failed` and no longer block the next request. Mailbox batches in that state return their messages to the queue. Timeouts and errors after connecting remain `unknown` and are never retried automatically.
+- Copying axMap into a team repository (`tools/vendor.mjs` → `ci/axmap/`) is retired. Commit hooks no longer fall back to such a copy; if only a copy is present, the hook stops with instructions to run `axmap hook install`. `axmap doctor` flags old hooks.
+
+[Decisions D30–D31 →](docs/DECISIONS.md)
+
+---
+
 ### 1.7.0
 
 <sub>October 27, 2026</sub>
