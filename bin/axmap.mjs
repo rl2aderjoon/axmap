@@ -36,7 +36,6 @@ import { auditLedger, formatAudit, planAudit, snapshotTime } from '../src/invari
 import {
   PACKAGE_NAME,
   fetchLatest,
-  isVendored,
   checkDisabled,
   readCache,
   writeCache,
@@ -53,7 +52,22 @@ import { inspectTarget, ambiguityMessage, describeTarget, writeWorkspaceChoice }
 /** 이 CLI 가 들어 있는 axMap 폴더. 갱신 확인과 setup 이 자기 위치를 알아야 한다. */
 const SELF_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** 지금 도는 axMap 의 버전. 못 읽으면 `null` — 벤더링된 사본에는 package.json 이 없다. */
+/**
+ * 이 폴더가 axMap 원본(소스 저장소 또는 npm 꾸러미)인가. `package.json` 의 이름으로 가른다.
+ *
+ * 팀 저장소 안에 복사해 두던 옛 사본(`ci/axmap` 등)에는 `package.json` 이 없었다.
+ * 그래서 훅이 "되돌아가도 되는 자리" 와 "걷어낸 사본" 을 이것 하나로 가른다 (D31).
+ * 못 읽으면 `false` — 원본이라고 판정하지 못했으면 원본으로 쓰지 않는다.
+ */
+function isAxmapSourceRoot(dir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))?.name === PACKAGE_NAME
+  } catch {
+    return false
+  }
+}
+
+/** 지금 도는 axMap 의 버전. 못 읽으면 `null` — 판을 지어내지 않는다. */
 function selfVersion() {
   try {
     return JSON.parse(fs.readFileSync(path.join(SELF_ROOT, 'package.json'), 'utf8'))?.version ?? null
@@ -524,8 +538,8 @@ function markBusSeen(root, me, id) {
 /**
  * 쪽지를 읽는 명령. **경로를 문자열로 적지 않고 계산한다.**
  *
- * 🔴 `node tools/bus.mjs …` 라고 적혀 있었다. 이 저장소에서는 맞고 **사본에서는
- *    틀린다** — 팀 저장소에 벤더링되면 그 파일은 `ci/axmap/tools/bus.mjs` 다.
+ * 🔴 `node tools/bus.mjs …` 라고 적혀 있었다. axMap 저장소에서는 맞고 **설치본이나
+ *    다른 저장소에서는 틀린다** — 그 파일은 도구가 놓인 자리에 있다.
  *    안내대로 치면 `MODULE_NOT_FOUND` 가 난다. 알림이 "쪽지가 있다" 고 말한 직후에
  *    읽는 방법을 틀리게 알려주는 것이라, 받은 사람은 도구가 고장 났다고 결론짓는다.
  */
@@ -2397,15 +2411,24 @@ function cmdDoctor(flags) {
   const hookAbs = path.isAbsolute(hookPath) ? hookPath : path.join(root, hookPath)
   if (fs.existsSync(hookAbs) && fs.readFileSync(hookAbs, 'utf8').includes('axmap')) {
     // 훅은 절대 경로를 담는다. 폴더 이름이 바뀌면 사라진 곳을 가리킨다.
-    // 다만 요즘 훅은 그 경로가 없을 때 저장소 안을 한 번 더 본다(cmdHookInstall 참조).
-    // 그래서 박아둔 경로만 보고 빨간불을 켜면 **거짓 경보**가 된다.
-    const target = (fs.readFileSync(hookAbs, 'utf8').match(/"([^"]+axmap\.mjs)"/) ?? [])[1]
-    const fallbacks = ['ci/axmap/bin/axmap.mjs', 'axmap/bin/axmap.mjs', 'bin/axmap.mjs']
-      .map((rel) => path.join(root, rel))
-      .filter((p) => fs.existsSync(p))
-    if (!target || fs.existsSync(target)) ok('커밋 훅', '심겨 있습니다')
-    else if (fallbacks.length) ok('커밋 훅', `심겨 있습니다 (박아둔 경로 대신 ${path.relative(root, fallbacks[0]).replace(/\\/g, '/')} 를 씁니다)`)
-    else no('커밋 훅', `가리키는 파일이 없습니다 (저장소 안에도 없습니다): ${target}\n         axmap hook install 로 다시 심으세요`)
+    // 다만 요즘 훅은 그 경로가 없을 때 axMap 저장소 자신(<루트>/bin)을 한 번 더 본다
+    // (cmdHookInstall 참조). 그래서 박아둔 경로만 보고 빨간불을 켜면 **거짓 경보**가 된다.
+    //
+    // 🔴 저장소 안 사본(ci/axmap · axmap)은 2026-10-29 에 걷어냈다 (DECISIONS D31).
+    //    그 전에 심은 훅은 박아둔 경로가 없으면 그 사본으로 되돌아가 **옛 규칙으로**
+    //    판정한다. 겉으로는 커밋이 잘 되므로 여기서 말하지 않으면 아무도 모른다.
+    const hookText = fs.readFileSync(hookAbs, 'utf8')
+    const target = (hookText.match(/"([^"]+axmap\.mjs)"/) ?? [])[1]
+    // 옛 훅은 둘 중 하나다: 사본을 직접 박았거나(`node ci/axmap/bin/axmap.mjs hook install`),
+    // 되돌아갈 자리 목록(`for p in ...`)에 사본을 넣었다. 지금 훅도 "사본이 있으면 막는다"
+    // 는 검사에 같은 경로 글자를 쓰므로, 글자가 들어 있다는 것만으로는 가르지 않는다.
+    const pinsCopy = /[\\/](ci[\\/])?axmap[\\/]bin[\\/]axmap\.mjs$/.test(target ?? '') && !isAxmapSourceRoot(path.resolve(target, '..', '..'))
+    const legacy = pinsCopy || /for p in "\$ROOT\/ci\/axmap\/bin\/axmap\.mjs"/.test(hookText)
+    const selfFallback = isAxmapSourceRoot(root) && fs.existsSync(path.join(root, 'bin', 'axmap.mjs'))
+    if (legacy) no('커밋 훅', '옛 훅입니다 — 저장소 안 axMap 사본(ci/axmap)을 부르거나 그리로 되돌아갑니다.\n         사본은 옛 규칙으로 판정하고, axMap 은 더 이상 사본을 쓰지 않습니다.\n         axmap hook install 로 다시 심으세요')
+    else if (!target || fs.existsSync(target)) ok('커밋 훅', '심겨 있습니다')
+    else if (selfFallback) ok('커밋 훅', '심겨 있습니다 (박아둔 경로 대신 bin/axmap.mjs 를 씁니다)')
+    else no('커밋 훅', `가리키는 파일이 없습니다: ${target}\n         axmap hook install 로 다시 심으세요`)
   } else {
     no('커밋 훅', `없습니다 — claim 하지 않은 파일도 그냥 커밋됩니다\n         axmap hook install`)
   }
@@ -2457,15 +2480,11 @@ function cmdDoctor(flags) {
   //    doctor 는 "지금 도는가" 를 재는 자리이고, 레지스트리를 기다리게 만들면
   //    네트워크가 느린 날 점검 자체가 안 끝난다.
   const ver = selfVersion()
-  if (isVendored(SELF_ROOT)) {
-    ok('버전', `${ver ?? '(모름)'} — 벤더링된 사본입니다. npm 이 아니라 tools/vendor.mjs 가 갱신합니다`)
-  } else {
-    const cache = readCache()
-    const notice = noticeLine(ver, cache?.latest)
-    if (notice) hm('새 버전', notice.split('\n').join('\n         '))
-    else if (cache) ok('버전', `${ver ?? '(모름)'} — 최신입니다 (확인: ${new Date(cache.checkedAt).toISOString()})`)
-    else ok('버전', `${ver ?? '(모름)'} — 새 버전이 있는지 물어본 적이 없습니다 (axmap update)`)
-  }
+  const cache = readCache()
+  const notice = noticeLine(ver, cache?.latest)
+  if (notice) hm('새 버전', notice.split('\n').join('\n         '))
+  else if (cache) ok('버전', `${ver ?? '(모름)'} — 최신입니다 (확인: ${new Date(cache.checkedAt).toISOString()})`)
+  else ok('버전', `${ver ?? '(모름)'} — 새 버전이 있는지 물어본 적이 없습니다 (axmap update)`)
 
   return finishDoctor(lines, bad, warn, flags)
 }
@@ -2499,57 +2518,55 @@ function cmdHookInstall() {
    * 🔴 박아둔 경로를 **1순위로 두되 유일한 길로 두지 않는다.**
    *
    * 위 주석의 의도(바깥 설치 대응)는 옳다. 그래서 `self` 를 그대로 첫 번째로 둔다.
-   * 그런데 저장소가 갈래마다 axMap 을 다른 자리에 두면 — 원본은 `axmap/`, 벤더링
-   * 사본은 `ci/axmap/` — 브랜치를 옮기는 순간 박아둔 경로가 **사라진다.**
+   * 박아둔 경로가 사라지면 훅은 "검사 실패" 가 아니라 `MODULE_NOT_FOUND` 로 죽고,
+   * 0 이 아닌 종료 코드는 곧 커밋 차단이다 — **선점과 무관한 커밋까지 전부 막힌다.**
+   * 막히면 사람은 `--no-verify` 를 쓰기 시작하고, 그 습관은 훅이 고쳐진 뒤에도 남는다.
    *
-   * 문제는 사라졌다는 사실이 아니라 **죽는 방식**이다. 훅은 "검사 실패" 가 아니라
-   * `MODULE_NOT_FOUND` 로 죽고, 0 이 아닌 종료 코드는 곧 커밋 차단이다. 즉
-   * **선점과 무관한 커밋까지 전부 막힌다.** 막히면 사람은 계속 일해야 하므로
-   * `--no-verify` 를 쓰기 시작하고, **그 습관은 훅이 고쳐진 뒤에도 남는다.**
-   * 지금의 고장보다 그것이 비싸다.
+   * 그래서 둘을 차례로 본다.
    *
-   * 그래서 넷을 차례로 본다. **배치가 셋이라는 것은 브랜치를 훑어 실측한 것이다**
-   * (2026-08-27 · `git cat-file -e <브랜치>:<경로>`):
+   *   1. 박아둔 절대 경로        (npm 설치본 · 바깥 설치)
+   *   2. <루트>/bin/axmap.mjs    **axMap 저장소 자신일 때만** (폴더를 옮긴 경우)
    *
-   *   1. 박아둔 절대 경로        (바깥 설치)
-   *   2. <루트>/ci/axmap/bin     main · common/dev · bigData/dev   ← 현재 표준
-   *   3. <루트>/axmap/bin        chore/axmap-bootstrap · backup/*
-   *   4. <루트>/bin              back/dev · front/dev              ← 옛 배치
+   * 🔴 **저장소 안 사본(`ci/axmap` · `axmap`)은 보지 않는다 (2026-10-29, DECISIONS D31).**
+   *    예전에는 그 둘도 되돌아갈 자리였다. 그런데 사본은 만든 날의 규칙에 멈춰 있어서,
+   *    박아둔 경로가 사라진 날 훅이 **옛 규칙으로 판정**했다 (GIT-AS-DB 사고 3).
+   *    axMap 은 이제 장부와 코드를 한 곳에만 둔다. 2번이 "axMap 저장소 자신" 인지는
+   *    `package.json` 의 꾸러미 이름으로 가른다 — 팀 저장소의 옛 `bin/` 사본에는 그
+   *    파일이 없다.
    *
-   * 🔴 4번을 빠뜨리면 **도구가 거기 있는데 못 찾아서 통과한다.** 그건 "설치 안 됨"
-   *    이 아니라 "찾는 목록이 짧음" 이고, 아래 fail-open 의 근거가 성립하지 않는
-   *    경우다. 하필 `back/dev` · `front/dev` 는 BE·FE 가 앞으로 실제로 쓸 갈래다.
+   * 🔴 사본은 있는데 진짜 도구를 못 찾으면 **막는다(exit 1).** 사본으로 되돌아가던
+   *    사람에게 그냥 통과시키면 어제까지 막히던 커밋이 오늘 조용히 통과한다 — 판정을
+   *    못 했는데 통과시키는 것이다. 무엇을 하면 되는지(`hook install`)를 같이 말한다.
    *
-   * 🔴 셋 다 없으면 **시끄럽게 경고하고 통과시킨다(exit 0).**
-   *
-   *    "도구를 못 찾은 것" 과 "검사가 실패한 것" 은 다르다. 도구가 있는데 선점을
-   *    안 했으면 반드시 막아야 하지만, 도구를 못 찾은 것은 설치 문제다. 설치 문제로
-   *    **선점과 무관한 커밋까지 전부 막으면** 사람은 `--no-verify` 를 쓰기 시작하고,
-   *    그 습관은 훅이 고쳐진 뒤에도 남는다. 그때는 진짜로 아무것도 안 막힌다.
-   *    `ax_inbox` 의 "없는 것과 못 읽은 것은 다르다" 와 같은 결이다.
-   *
-   *    ⚠ 다만 **CI 가 대신 잡아 준다고 말하지 않는다.** 팀 저장소의 `claims` 잡은
-   *      `merge_request_event` 에서만 돌고 `changes:` 목록에 든 폴더만 본다.
-   *      dev 브랜치 직접 push 와 목록 밖 폴더는 그물 밖이다. 그래서 여기서 할 수
-   *      있는 것은 **조용히 넘어가지 않는 것**뿐이고, 문구는 그 사실만 말한다.
-   *      (그물을 넓히는 것은 `.gitlab-ci.yml` 쪽 일이라 여기서 처리하지 않는다.)
+   * 🔴 사본도 도구도 없으면 **시끄럽게 경고하고 통과시킨다(exit 0).** 이건 설치 문제다.
+   *    설치 문제로 선점과 무관한 커밋까지 전부 막으면 위의 `--no-verify` 습관이 생긴다.
+   *    ⚠ 다만 **CI 가 대신 잡아 준다고 말하지 않는다.** 여기서 할 수 있는 것은
+   *      **조용히 넘어가지 않는 것**뿐이고, 문구는 그 사실만 말한다.
    */
   const body = `#!/bin/sh
 # axMap - claim 하지 않은 파일의 커밋을 막는다.
-# 경로를 하나만 박지 않는다 — 저장소가 갈래마다 axMap 을 다른 자리에 두기 때문이다
-# (ci/axmap · axmap · bin 세 배치). 자세한 근거는 bin/axmap.mjs 의 cmdHookInstall.
+# 박아둔 경로가 없으면 axMap 저장소 자신(<루트>/bin)만 한 번 더 본다.
+# 저장소 안 사본(ci/axmap)은 쓰지 않는다. 자세한 근거는 bin/axmap.mjs 의 cmdHookInstall.
 AX="${self}"
-if [ ! -f "$AX" ]; then
-  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""
-  for p in "$ROOT/ci/axmap/bin/axmap.mjs" "$ROOT/axmap/bin/axmap.mjs" "$ROOT/bin/axmap.mjs"; do
-    if [ -f "$p" ]; then AX="$p"; break; fi
-  done
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""
+if [ ! -f "$AX" ] && [ -n "$ROOT" ] && [ -f "$ROOT/bin/axmap.mjs" ] && grep -q '"name": *"${PACKAGE_NAME}"' "$ROOT/package.json" 2>/dev/null; then
+  AX="$ROOT/bin/axmap.mjs"
 fi
 if [ ! -f "$AX" ]; then
+  if [ -n "$ROOT" ] && { [ -f "$ROOT/ci/axmap/bin/axmap.mjs" ] || [ -f "$ROOT/axmap/bin/axmap.mjs" ]; }; then
+    echo "" >&2
+    echo "  !!  axMap: 이 저장소 안의 axMap 사본(ci/axmap)은 더 이상 쓰지 않습니다." >&2
+    echo "      사본은 옛 규칙으로 판정하므로 검사를 맡기지 않았고, 이 커밋을 멈췄습니다." >&2
+    echo "      고치려면 - 이 저장소에서 axmap hook install" >&2
+    echo "      (axmap 명령이 없으면 먼저 npm install -g ${PACKAGE_NAME}@latest)" >&2
+    echo "" >&2
+    exit 1
+  fi
   echo "" >&2
   echo "  !!  axMap: 검사 도구를 찾지 못했습니다." >&2
   echo "      이 커밋은 선점 검사를 거치지 않았습니다." >&2
-  echo "      고치려면 - node <axmap 위치>/bin/axmap.mjs hook install" >&2
+  echo "      고치려면 - 이 저장소에서 axmap hook install" >&2
+  echo "      (axmap 명령이 없으면 먼저 npm install -g ${PACKAGE_NAME}@latest)" >&2
   echo "" >&2
   exit 0
 fi
@@ -2601,14 +2618,10 @@ exec node "$AX" verify
  * 🔴 **import 하지 않고 spawn 한다.** 이유가 둘이다.
  *
  *   1. `tools/setup.mjs` 는 설치기를 부르느라 `src/agentcli.mjs` 계열까지
- *      끌고 온다. 여기서 static import 를 걸면 그 전부가 `src/closure.mjs` 의
- *      import 그래프에 잡혀 **팀 저장소의 `ci/axmap/` 사본이 통째로 불어난다.**
- *      사본은 CI 가 판정에 쓰는 파일만 담기로 한 자리다.
+ *      끌고 온다. static import 를 걸면 CLI 를 띄울 때마다 그 전부를 읽는다.
  *   2. 설치는 판정이 아니다. 실패해도 CLI 의 나머지가 멈출 이유가 없다.
  *
- * 그 대가로 **사본에는 이 파일이 없다.** 없을 때 조용히 실패하지 않고, 왜 없는지와
- * 무엇을 대신 하면 되는지를 말한다 — 이 저장소가 `tools/bus.mjs` 로 한 번 겪은
- * 실패다(사본에 빠져 있는데 오류만 났다).
+ * 파일이 없을 때는 조용히 실패하지 않고, 꾸러미가 온전하지 않다고 말한다.
  */
 /**
  * 딸린 프로그램들. **이름을 경로로 바꿔 주는 것이 전부다.**
@@ -2618,6 +2631,7 @@ exec node "$AX" verify
  *    **npm 으로 설치하면 그 경로가 기계마다 다르다.** 그래서 팀의 CI 설정과
  *    슬래시 명령이 경로를 박아 둘 수밖에 없었고, 경로가 박혀 있는 한 사본을
  *    지울 수 없었다. 여기 이름이 하나 생길 때마다 박힌 경로가 하나 사라진다.
+ *    이 이름들이 자리를 잡은 뒤 사본은 2026-10-29 에 걷어냈다 (DECISIONS D31).
  *
  * 값은 [파일, 한 줄 설명] 이다. 설명은 HELP 와 오류 메시지가 같이 쓴다 —
  * 두 군데 적으면 한 쪽만 고쳐지는 날이 온다.
@@ -2644,11 +2658,7 @@ function cmdRun(name) {
   if (!fs.existsSync(script)) {
     die(
       `이 axMap 에는 ${name}(${what})이 들어 있지 않습니다: ${script}\n\n` +
-        (isVendored(SELF_ROOT)
-          ? `  여기는 팀 저장소 안의 **벤더링된 사본**입니다(옆에 SOURCE.json 이 있습니다).\n` +
-            `  사본에는 CI 가 판정에 쓰는 파일만 들어 있습니다.\n\n` +
-            `  배포판으로 부르세요:\n    npx -y ${PACKAGE_NAME}@latest ${name}`
-          : `  꾸러미가 온전하지 않습니다. 다시 받으세요:\n    npx -y ${PACKAGE_NAME}@latest ${name}`),
+        `  꾸러미가 온전하지 않습니다. 다시 받으세요:\n    npx -y ${PACKAGE_NAME}@latest ${name}`,
     )
   }
   // 인자는 그대로 넘긴다. 여기서 다시 해석하면 두 곳의 플래그 목록이 어긋난다.
@@ -2690,20 +2700,6 @@ function cmdRun(name) {
  */
 async function cmdUpdate(flags) {
   const current = selfVersion()
-
-  // 사본은 npm 이 아니라 tools/vendor.mjs 가 갱신한다. 여기서 레지스트리를 치면
-  // 팀 CI 가 매번 바깥 네트워크에 의존하게 되고, 안내를 받은 팀원이 할 수 있는
-  // 일도 없다 (사본은 axMap 저장소에서 vendor.mjs 를 다시 돌려야 바뀐다).
-  if (isVendored(SELF_ROOT)) {
-    console.log('')
-    console.log('여기는 팀 저장소 안의 벤더링된 사본입니다 (옆에 SOURCE.json 이 있습니다).')
-    console.log('사본은 npm 이 아니라 axMap 저장소의 tools/vendor.mjs 가 갱신합니다.')
-    console.log('')
-    console.log('  사본이 온전한지:  node ci/verify-vendor.mjs')
-    console.log('  어느 커밋의 사본인지:  ci/axmap/SOURCE.json')
-    console.log('')
-    process.exit(0)
-  }
 
   const registry = registryUrl()
   console.log('')
@@ -2775,8 +2771,8 @@ async function cmdUpdate(flags) {
  *    출력이 **돌리는 사람의 PC 상태에 따라 달라지고**, 그러면 시험이 사람마다
  *    다른 답을 낸다 (실제로 그렇게 깨졌다).
  *
- * 🔴 못 읽으면 `null` 을 돌려 **아무 말도 안 한다.** 사본을 안 쓰는 설치도 있고
- *    (팀 저장소 안의 벤더링 사본은 위에서 이미 걸러진다), 없는 것을 낡았다고
+ * 🔴 못 읽으면 `null` 을 돌려 **아무 말도 안 한다.** 사본을 안 쓰는 설치도 있고,
+ *    없는 것을 낡았다고
  *    말하면 그 경고는 곧 아무도 안 읽는 잡음이 된다.
  */
 function installedAppVersion() {
@@ -2799,7 +2795,7 @@ function installedAppVersion() {
  *    글을 섞으면 그 출력을 파싱하는 쪽이 조용히 깨진다.
  */
 function warnIfStale() {
-  if (checkDisabled() || isVendored(SELF_ROOT)) return
+  if (checkDisabled()) return
   const cache = readCache()
   if (!cache) return
   const notice = noticeLine(selfVersion(), cache.latest)
@@ -2933,7 +2929,7 @@ const [cmd, ...rest] = positional
  */
 if (boolFlag(flags.version, 'version') && !cmd) {
   const v = selfVersion()
-  if (!v) die('버전을 알 수 없습니다 - package.json 이 없는 사본입니다.')
+  if (!v) die('버전을 알 수 없습니다 - 이 axMap 옆에 package.json 이 없습니다.')
   console.log(v)
   process.exit(0)
 }

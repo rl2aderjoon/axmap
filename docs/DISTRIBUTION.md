@@ -14,4 +14,4 @@ npm pack --dry-run
 
 1.7.0의 변경 범위와 패키지 검증 절차는 [릴리스 기록](RELEASE-1.7.0.md)을 따른다.
 
-팀 CI에 사본이 필요한 경우 `node tools/vendor.mjs --to <대상-저장소> --repo https://github.com/rl2aderjoon/axmap.git`을 사용한다. 원본 주소와 해시를 함께 기록하며 [거버넌스 도구](../governance/GOVERNANCE.md)의 적용 환경을 확인한다.
+axMap은 npm 패키지와 이 소스 저장소로만 배포한다. 팀 저장소 안에 코드를 복사해 두던 방식(`tools/vendor.mjs` → `ci/axmap/`)은 2026-10-29에 폐기했다([D31](DECISIONS.md)). 팀 CI와 커밋 훅은 설치한 `axmap` 명령(`axmap gate`·`axmap vote` 등)을 부른다. [거버넌스 도구](../governance/GOVERNANCE.md)의 적용 환경을 확인한다.

@@ -20,8 +20,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-// bin/axmap.mjs·mcp/server.mjs 가 import 하므로 이 파일은 팀 저장소 CI 사본(test/closure.test.mjs)
-// 에 들어간다. 사본에 따라갈 파일을 늘리지 않도록 session-types 의 작은 도우미를 가져오지 않는다.
+// bin/axmap.mjs·mcp/server.mjs 가 CLI 를 띄울 때마다 import 하므로 Node 내장만 쓴다.
+// 그래서 session-types 의 작은 도우미도 가져오지 않는다.
 const errorMessage = (e) => e instanceof Error ? e.message : String(e);
 const errorCode = (e) => e instanceof Error && 'code' in e && typeof e.code === 'string' ? e.code : undefined;
 export const WORKSPACE_CONFIG = '.axmap.json';

@@ -5,6 +5,11 @@
 
 용어는 처음 나올 때 한 줄로 푼다 (팀 `CLAUDE.md` 0절).
 
+> 🔴 **2026-10-29 · 팀 저장소 사본(`ci/axmap/`)을 폐기했다** ([D31](DECISIONS.md)).
+> 아래 0·1·6절의 벤더링·핀·`verify-vendor` 이야기는 그 전의 기록이다. 지금은 장부와
+> 코드가 axMap 한 곳에만 있고, 쪽지 도구는 `axmap bus …` 로 부른다. 6절의 구조적
+> 결함(낡은 사본을 아무 검사도 못 알려준다)은 사본을 없애는 것으로 닫았다.
+
 | 말 | 뜻 |
 |---|---|
 | **쪽지함(bus)** | 에이전트끼리 사람을 거치지 않고 주고받는 쪽지. 고아 브랜치 `axmap/bus` 에 실려 오간다 |
@@ -233,7 +238,7 @@ Claude Code 에서 "매 턴 무언가를 돌려 그 출력을 모델 앞에 놓�
         "hooks": [
           {
             "type": "command",
-            "command": "node ci/axmap/tools/bus.mjs list --mine --unread --throttle 60 --quiet-if-empty",
+            "command": "axmap bus list --mine --unread --throttle 60 --quiet-if-empty",
             "timeout": 20
           }
         ]
@@ -330,6 +335,9 @@ MCP 서버는 `.mcp.json` 의 `env` 로, 훅은 명령줄 `--throttle` 로 정�
 ---
 
 ## 6. 🔴 구조적 결함 — 낡은 사본은 어떤 검사도 알려주지 않는다
+
+> ✅ **2026-10-29 에 닫았다** ([D31](DECISIONS.md)). 아래 제안(핀 최신성 검사)은 만들지
+> 않는다 — 사본 자체를 걷어냈으므로 따라갈 핀이 없다. 기록으로 남긴다.
 
 이 버그가 오래 살아남은 진짜 이유다. **아무 검사도 빨개지지 않았다.**
 

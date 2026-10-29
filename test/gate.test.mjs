@@ -1124,27 +1124,16 @@ describe('agent.shown — 던질 때 실제로 보였던 것은 프로그램이 
     assert.equal(gate(repo, ['--source', BRANCH, '--target', 'main']).status, 0)
   })
 
-  it('사본 출처(SOURCE.json)가 없으면 axmap 은 둘 다 null 이다 — 지어내지 않는다', () => {
-    const { repo, head } = makeRepo('shown-nosource', {
-      policy: basePolicy({ default: { threshold: 1 } }),
-    })
-    asAlice(repo)
-    assert.equal(vote(repo, ['--branch', BRANCH, '--note', REASON]).status, 0)
-
-    assert.deepEqual(written(repo, head).agent.shown.axmap, { commit: null, behind: null })
-  })
-
-  it('🔴 원격에 못 닿아도 표는 던져진다 — behind 만 null 이다', () => {
-    // axMap 이 잠깐 죽거나 접근 권한이 만료된 날 팀의 투표가 멈추면 안 된다.
-    // 사본(벤더링)을 두는 이유와 정확히 같은 이유다.
-    const FAKE = '6d9fe68050baed93b06b7c563b15ac638defd65e'
-    const { repo, head } = makeRepo('shown-unreachable', {
+  it('🔴 저장소에 옛 사본 출처(ci/axmap/SOURCE.json)가 남아 있어도 읽지 않는다 — 사본은 걷어냈다 (D31)', () => {
+    // 예전 표에는 `shown.axmap`(사본의 출처 커밋·뒤처진 정도)이 적혔다. 사본을 걷어낸 뒤로
+    // 그 파일은 낡은 흔적일 뿐이라, 읽어서 표에 옮기면 없는 사본을 있다고 적는 것이 된다.
+    const { repo, head } = makeRepo('shown-no-vendor', {
       policy: basePolicy({ default: { threshold: 1 } }),
       mainFiles: {
         'ci/axmap/SOURCE.json': {
           source: {
             repository: '/axmap-저장소가-여기-없다.git',
-            commit: FAKE,
+            commit: '6d9fe68050baed93b06b7c563b15ac638defd65e',
             branch: 'team-sync',
           },
         },
@@ -1153,15 +1142,12 @@ describe('agent.shown — 던질 때 실제로 보였던 것은 프로그램이 
     asAlice(repo)
 
     const v = vote(repo, ['--branch', BRANCH, '--note', REASON])
-    assert.equal(v.status, 0, `원격에 못 닿는다고 표를 못 던졌다: ${both(v)}`)
-
-    const axmap = written(repo, head).agent.shown.axmap
-    assert.equal(axmap.commit, FAKE, '사본 출처를 못 읽었다')
-    assert.equal(axmap.behind, null, '못 쟀는데 숫자를 지어냈다')
+    assert.equal(v.status, 0, `옛 사본 흔적 때문에 표를 못 던졌다: ${both(v)}`)
+    assert.equal('axmap' in written(repo, head).agent.shown, false, '걷어낸 사본의 출처를 표에 적었다')
   })
 
   it('🔴 게이트가 이 표를 깨진 것으로 보지 않는다 — agent 칸은 판정에 안 쓰인다', () => {
-    // 새 필드가 늘 때마다 옛 게이트가 표를 깨진 것으로 보면 사본을 못 올린다.
+    // 새 필드가 늘거나 줄 때마다 옛 게이트가 표를 깨진 것으로 보면 판을 올릴 수 없다.
     const { repo } = makeRepo('shown-compat', {
       policy: basePolicy({ default: { threshold: 1 } }),
     })

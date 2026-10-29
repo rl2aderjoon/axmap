@@ -11,19 +11,9 @@
  *    코드가 아니기 때문이다. 적용은 사람이 `axmap update` 를 읽고 한 줄을
  *    직접 실행하는 것으로만 일어난다.
  *
- * ── 🔴 벤더링된 사본에서는 아무것도 하지 않는다 ─────────────────────────────
- *
- * 팀 저장소의 `ci/axmap/` 은 이 코드의 **사본**이고(팀 CLAUDE.md 0.3),
- * 그 사본이 최신인지는 npm 이 아니라 `tools/vendor.mjs` 가 정한다. 사본이
- * 레지스트리를 쳐다보면 두 가지가 한꺼번에 나빠진다.
- *
- *   1. 팀 CI 가 매 파이프라인마다 바깥 네트워크에 의존하게 된다 — 벤더링이
- *      끊으려고 했던 바로 그 연결이다
- *   2. "새 버전이 있다" 는 안내가 팀원에게 뜨는데, 그 팀원이 할 수 있는 일은
- *      없다. 사본은 axMap 저장소에서 `vendor.mjs` 를 다시 돌려야만 바뀐다
- *
- * 사본인지 아닌지는 **옆에 `SOURCE.json` 이 있는가**로 가른다. 그 파일은
- * `tools/vendor.mjs` 가 사본에만 써 넣는다(원본 저장소 루트에는 없다).
+ * 팀 저장소 안에 이 코드의 사본(`ci/axmap/`)을 두던 시절에는 사본이면 확인을
+ * 건너뛰는 갈래가 여기 있었다. 2026-10-29 에 사본을 걷어냈으므로(DECISIONS D31)
+ * 그 갈래도 없다 — 이 코드가 도는 자리는 npm 설치본과 axMap 저장소뿐이다.
  */
 
 import fs from 'node:fs'
@@ -78,13 +68,6 @@ export function compareVersions(a, b) {
   if (!y.pre) return -1
   return x.pre > y.pre ? 1 : -1
 }
-
-/**
- * 이 axMap 이 **벤더링된 사본**인가. 사본이면 갱신 확인을 통째로 건너뛴다.
- *
- * @param {string} axmapRoot  `bin/` · `src/` 를 담고 있는 폴더
- */
-export const isVendored = (axmapRoot) => fs.existsSync(path.join(axmapRoot, 'SOURCE.json'))
 
 /**
  * 확인을 하지 말아야 하는 자리인가.

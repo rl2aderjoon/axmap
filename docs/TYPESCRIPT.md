@@ -50,7 +50,7 @@ JavaScript만 기존 경로에 반영한다. 임시 컴파일 결과는 `.axmap/
 `npm test`는 이 검사부터 수행하므로 `.mts`만 바꾸고 빌드를 누락하면 실패한다.
 `npm pack`·`npm publish`의 `prepack`은 빌드를 수행해 실행 가능한 JavaScript를 포함한다.
 
-생성 JavaScript를 보관하는 이유는 소스 체크아웃과 팀 저장소의 벤더 사본도 빌드 도구 없이
+생성 JavaScript를 보관하는 이유는 소스 체크아웃도 빌드 도구 없이
 지금의 `node bin/axmap.mjs` 및 MCP 경로로 실행할 수 있게 하기 위해서다. 전체 CLI·MCP
 진입점, Git 장부·거버넌스, 기존 테스트는 아직 JavaScript이며 후속 단계에서 전환할 수 있다.
 

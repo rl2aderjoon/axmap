@@ -1002,7 +1002,7 @@ function publish(id) {
 
 /**
  * 이 파일을 지금 폴더에서 부르는 명령. **문자열로 적지 않고 계산한다.**
- * 벤더링된 사본에서는 `tools/bus.mjs` 가 아니라 `ci/axmap/tools/bus.mjs` 다.
+ * 이 파일은 도구가 설치된 자리(npm 설치본·axMap 저장소)에 있고, 그 자리는 기계마다 다르다.
  */
 function selfCmd() {
   const self = fileURLToPath(import.meta.url)

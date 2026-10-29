@@ -247,3 +247,94 @@ describe('audit --code 와 한글 경로', () => {
     bm(['release'], 'hangul-agent')
   })
 })
+
+describe('🔴 커밋 훅은 저장소 안 사본(ci/axmap)으로 되돌아가지 않는다 (D31)', () => {
+  /**
+   * 예전 훅은 박아둔 경로가 사라지면 `<루트>/ci/axmap/bin/axmap.mjs` 를 대신 불렀다.
+   * 그 사본은 만든 날의 규칙에 멈춰 있어서 **옛 규칙으로 판정**했다 (GIT-AS-DB 사고 3).
+   * 사본을 걷어낸 지금, 사본이 남아 있는 저장소에서 진짜 도구를 못 찾으면
+   * 조용히 통과시키지 않고 멈춰서 `hook install` 을 안내해야 한다.
+   */
+  let dir = null
+  const run = (cmd, args) => spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', windowsHide: true })
+  const hookFile = () => path.join(dir, '.git', 'hooks', 'pre-commit')
+  /** 박아둔 경로를 없는 곳으로 바꾼다 — 폴더를 옮긴 뒤의 훅과 같은 상태다. */
+  const breakPin = () => {
+    const text = fs.readFileSync(hookFile(), 'utf8').replace(/^AX=".*"$/m, 'AX="/axmap-여기-없다/bin/axmap.mjs"')
+    fs.writeFileSync(hookFile(), text)
+  }
+
+  /**
+   * 훅을 git 이 부르게 한다. 훅은 git 이 자기 sh 로 돌리므로, 셸을 따로 찾지 않고
+   * 실제 커밋 경로를 그대로 탄다 (Windows 의 PATH 에는 sh 가 없을 수 있다).
+   */
+  const commit = () => run('git', ['commit', '-q', '--allow-empty', '-m', 'hook'])
+
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap-hook-'))
+    run('git', ['init', '-q'])
+    run('git', ['config', 'user.name', 'hook-test'])
+    run('git', ['config', 'user.email', 'hook@example.com'])
+    run('git', ['config', 'commit.gpgsign', 'false'])
+    const r = spawnSync(process.execPath, [CLI, 'hook', 'install'], { cwd: dir, encoding: 'utf8', windowsHide: true })
+    assert.equal(r.status, 0, `hook install 실패: ${r.stderr || r.stdout}`)
+  })
+
+  after(() => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 지워지면 그만 */ }
+  })
+
+  it('새 훅에는 사본으로 되돌아가는 목록이 없다', () => {
+    const text = fs.readFileSync(hookFile(), 'utf8')
+    assert.doesNotMatch(text, /for p in "\$ROOT\/ci\/axmap/, '훅이 아직 사본으로 되돌아간다')
+    assert.match(text, /verify/)
+  })
+
+  it('🔴 도구를 못 찾았는데 사본이 남아 있으면 막는다(1) — 옛 규칙에 판정을 맡기지 않는다', () => {
+    breakPin()
+    fs.mkdirSync(path.join(dir, 'ci', 'axmap', 'bin'), { recursive: true })
+    // 이 사본이 불리면 0 으로 끝난다. 막혔다면 훅이 사본을 부르지 않은 것이다.
+    fs.writeFileSync(path.join(dir, 'ci', 'axmap', 'bin', 'axmap.mjs'), 'process.exit(0)\n')
+    try {
+      const r = commit()
+      assert.equal(r.status, 1, `사본이 있는데 통과했다: ${r.stdout}${r.stderr}`)
+      assert.match(r.stderr, /더 이상 쓰지 않습니다/)
+      assert.match(r.stderr, /hook install/)
+    } finally {
+      fs.rmSync(path.join(dir, 'ci'), { recursive: true, force: true })
+    }
+  })
+
+  it('사본도 도구도 없으면 경고만 하고 통과한다(0) — 설치 문제로 모든 커밋을 막지 않는다', () => {
+    breakPin()
+    const r = commit()
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /검사 도구를 찾지 못했습니다/)
+  })
+
+  it('🔴 doctor 는 사본으로 되돌아가는 옛 훅을 고쳐야 할 것으로 말한다', () => {
+    const old = '#!/bin/sh\nAX="/axmap-여기-없다/bin/axmap.mjs"\nif [ ! -f "$AX" ]; then\n' +
+      '  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""\n' +
+      '  for p in "$ROOT/ci/axmap/bin/axmap.mjs" "$ROOT/axmap/bin/axmap.mjs" "$ROOT/bin/axmap.mjs"; do\n' +
+      '    if [ -f "$p" ]; then AX="$p"; break; fi\n  done\nfi\nexec node "$AX" verify\n'
+    fs.writeFileSync(hookFile(), old)
+    const r = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: dir, encoding: 'utf8', windowsHide: true })
+    const hook = JSON.parse(r.stdout).checks.find((c) => c.what === '커밋 훅')
+    assert.equal(hook?.status, 'no', `옛 훅을 정상으로 봤다: ${JSON.stringify(hook)}`)
+    assert.match(hook.detail, /hook install/)
+  })
+
+  it('🔴 doctor 는 사본을 직접 박은 옛 훅도 고쳐야 할 것으로 말한다', () => {
+    fs.mkdirSync(path.join(dir, 'ci', 'axmap', 'bin'), { recursive: true })
+    const pinned = path.join(dir, 'ci', 'axmap', 'bin', 'axmap.mjs').replace(/\\/g, '/')
+    fs.writeFileSync(pinned, 'process.exit(0)\n')
+    try {
+      fs.writeFileSync(hookFile(), `#!/bin/sh\nAX="${pinned}"\nexec node "$AX" verify\n`)
+      const r = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: dir, encoding: 'utf8', windowsHide: true })
+      const hook = JSON.parse(r.stdout).checks.find((c) => c.what === '커밋 훅')
+      assert.equal(hook?.status, 'no', `사본을 부르는 훅을 정상으로 봤다: ${JSON.stringify(hook)}`)
+    } finally {
+      fs.rmSync(path.join(dir, 'ci'), { recursive: true, force: true })
+    }
+  })
+})

@@ -7,9 +7,6 @@
  *    사이에 도구가 바뀌는 것*이다 — 어제 되던 것이 오늘 안 되는데, 바뀐 것이 자기
  *    코드가 아니라서 어디를 볼지 알 수 없다. 그래서 이 층은 **알리기만** 한다.
  *
- *    그리고 벤더링된 사본(팀 저장소의 `ci/axmap/`)은 확인 자체를 하지 않아야 한다.
- *    사본이 레지스트리를 쳐다보면 벤더링이 끊으려던 바깥 의존이 CI 로 되돌아온다.
- *
  * 레지스트리는 127.0.0.1 에 진짜 http 서버를 띄워 재고, 바깥 네트워크는 치지 않는다.
  * 가짜 fetch 로만 재면 "URL 을 어떻게 만드는가" 가 한 번도 안 돈다.
  */
@@ -31,7 +28,6 @@ import {
   compareVersions,
   fetchLatest,
   isStale,
-  isVendored,
   noticeLine,
   readCache,
   registryUrl,
@@ -117,20 +113,6 @@ describe('안내문', () => {
     assert.equal(noticeLine(null, '1.3.0'), null)
     assert.equal(noticeLine('1.2.3', null), null)
     assert.equal(noticeLine(null, null), null)
-  })
-})
-
-describe('🔴 벤더링된 사본은 확인하지 않는다', () => {
-  it('옆에 SOURCE.json 이 있으면 사본이다', () => {
-    const d = tmp('vendored')
-    assert.equal(isVendored(d), false, 'SOURCE.json 이 없는데 사본이라고 했다')
-    fs.writeFileSync(path.join(d, 'SOURCE.json'), '{}')
-    assert.equal(isVendored(d), true, 'SOURCE.json 이 있는데 사본이 아니라고 했다')
-  })
-
-  it('이 저장소 자신은 사본이 아니다 — 원본에는 SOURCE.json 이 없다', () => {
-    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..')
-    assert.equal(isVendored(root), false, `원본을 사본으로 봤다: ${root}`)
   })
 })
 
@@ -383,7 +365,7 @@ describe('update 는 네트워크 뒤에 프로세스를 강제로 끝내지 않
     const end = src.indexOf('\n}\n', from)
     const body = src.slice(from, end)
 
-    // 레지스트리를 치기 전(벤더링된 사본으로 빠지는 길)의 exit 은 소켓이 없으니 괜찮다.
+    // 레지스트리를 치기 전의 exit 은 소켓이 없으니 괜찮다.
     const afterFetch = body.slice(body.indexOf('fetchLatest'))
     assert.doesNotMatch(
       afterFetch,

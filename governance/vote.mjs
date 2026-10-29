@@ -19,7 +19,7 @@
  *   `agent.summary` AI 가 적는다 (`--agent-summary`)
  *   `agent.id`      부르는 쪽이 적는다 (`--agent`, 없으면 `"none"`)
  *   `agent.shown`   🔴 **아무도 못 적는다. 이 프로그램이 직접 잰다** —
- *                   변경량·경로·그 시점의 판정·axMap 사본이 몇 커밋 뒤처졌는지.
+ *                   변경량·경로·그 시점의 판정.
  *                   `committerEmail` 을 못 적게 한 것과 같은 이유다 (아래).
  *
  * GitLab 의 Approve 버튼을 쓰지 않는 이유는 [GOVERNANCE.md](GOVERNANCE.md) 와
@@ -77,36 +77,11 @@ import {
 const VOTES_BRANCH = 'axmap/votes'
 const VOTES_REL = path.join('.axmap', 'votes')
 
-/** 이 파일이 놓인 자리. 팀 저장소에서는 `ci/axmap/governance/` 다. */
+/** 이 파일이 놓인 자리. 옆의 gate.mjs 를 부를 때 쓴다. */
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-
-/**
- * 사본이 놓이는 자리. **저장소 루트 기준**이고 `tools/vendor.mjs` 의 `VENDOR_REL`
- * 과 같은 값이어야 한다. 여기가 갈리면 표에 적히는 출처가 조용히 비게 된다.
- */
-const VENDOR_REL = 'ci/axmap'
-
-/**
- * 벤더링(**남의 저장소 코드를 내 저장소 안에 복사해 두는 것**) 출처가 적힌 파일을
- * 찾는 순서.
- *
- * 🔴 **저장소 루트 쪽을 먼저 본다.** 이 칸이 말하는 것은 "어느 스크립트가 돌았나"
- *    가 아니라 **"표를 던지는 이 저장소가 어느 사본을 쓰고 있나"** 이기 때문이다.
- *    개발 중에 axMap 저장소의 스크립트를 팀 저장소에서 직접 돌리더라도, 표에는
- *    그 팀 저장소의 사본 출처가 적혀야 한다.
- *
- * 둘 다 없으면 `{ commit: null, behind: null }` — axMap 저장소 자신에서 돌릴 때가
- * 그렇다. 사본이 아니니 출처도 없다.
- */
-const axmapSourceCandidates = () => [
-  path.join(ROOT ?? '.', ...VENDOR_REL.split('/'), 'SOURCE.json'),
-  path.join(HERE, '..', 'SOURCE.json'),
-]
 
 /** 게이트를 미리 한 번 돌려 보는 데 주는 시간. 넘기면 "잴 수 없음" 으로 적는다. */
 const GATE_TIMEOUT_MS = 60_000
-/** 원격에 axMap 이 몇 커밋 앞서 있는지 물어보는 데 주는 시간. */
-const LS_REMOTE_TIMEOUT_MS = 15_000
 
 /** push 가 거부될 때(= 누가 먼저 도착) 다시 해보는 횟수. bin/axmap.mjs 와 같은 값. */
 const MAX_CAS_RETRIES = 5
@@ -240,7 +215,7 @@ const HELP = `표를 던진다 — 저장소 안의 파일 하나로
   다만 판정문에는 반드시 보인다.
 
   표에는 던질 때 실제로 보였던 것(agent.shown)이 함께 적힌다 — 변경량·경로·
-  그 시점의 판정·axMap 사본이 몇 커밋 뒤처졌는지. 🔴 이 칸은 아무도 못 적는다.
+  그 시점의 판정. 🔴 이 칸은 아무도 못 적는다.
   이 프로그램이 직접 재서 채운다.
 `
 
@@ -687,44 +662,6 @@ function measureGate(branch, targetName, policyFlag) {
   return `${verdict.ok ? '충족' : '미달'} ${verdict.approvals}/${verdict.threshold}`
 }
 
-/**
- * 이 저장소에 복사돼 있는 axMap 이 **어느 커밋의 사본이고 몇 커밋 뒤처졌는가.**
- *
- * 🔴 못 닿으면 `behind: null` 이고 **표는 그대로 던져진다.** axMap 이 잠깐
- *    죽거나 접근 권한이 만료된 날 팀의 투표가 멈추면 안 된다 — 사본을 두는
- *    이유(벤더링)와 정확히 같은 이유다.
- *
- * 🔴 **여기서 fetch 하지 않는다.** 표를 던지는 명령이 남의 저장소를 통째로
- *    내려받아 이 저장소의 오브젝트를 불리는 것은 아무도 예상하지 않는 부수효과다.
- *    그래서 `ls-remote` 로 끝을 물어보고, 셀 수 있을 때만(= 그 이력이 이미 이
- *    저장소에 있을 때만) 센다. 못 세면 `null` 이다.
- *    ⚠ 그 결과 "원격에 못 닿음" 과 "닿았지만 셀 수 없음" 이 둘 다 `null` 이다.
- *      `behind: null` 은 **"뒤처지지 않았다" 가 아니라 "못 쟀다"** 로 읽는다.
- */
-function measureAxmap() {
-  let src = null
-  for (const p of axmapSourceCandidates()) {
-    try { src = JSON.parse(fs.readFileSync(p, 'utf8')); break } catch { /* 다음 자리 */ }
-  }
-  if (!src) return { commit: null, behind: null }
-
-  const commit = str(src?.source?.commit)
-  const url = str(src?.source?.repository)
-  const branch = str(src?.source?.branch) ?? 'main'
-  if (!commit) return { commit: null, behind: null }
-  if (!url) return { commit, behind: null }
-
-  const ls = git(['ls-remote', url, branch], { env: NO_PROMPT_ENV, timeout: LS_REMOTE_TIMEOUT_MS })
-  if (ls.code !== 0 || !ls.out) return { commit, behind: null }
-  const tip = ls.out.split('\n')[0].split('\t')[0].trim()
-  if (!/^[0-9a-f]{40}$/.test(tip)) return { commit, behind: null }
-  if (tip === commit) return { commit, behind: 0 }
-
-  const n = git(['rev-list', '--count', `${commit}..${tip}`])
-  if (n.code !== 0 || !/^\d+$/.test(n.out)) return { commit, behind: null }
-  return { commit, behind: Number(n.out) }
-}
-
 // ---------------------------------------------------------------------------
 // 본체
 // ---------------------------------------------------------------------------
@@ -886,7 +823,8 @@ const relPath = `votes/${branch}/${voter}-${sha.slice(0, 8)}.json`
 const shown = {
   ...measureDiff(targetName, branch),
   gate: measureGate(branch, targetName, str(flags.policy)),
-  axmap: measureAxmap(),
+  // 🔴 예전에는 `axmap` 칸(저장소 안 사본의 출처 커밋·뒤처진 정도)도 적었다.
+  //    사본을 걷어낸 뒤(D31)로는 잴 것이 없다. 옛 표에 남은 그 칸은 판정에 안 쓰인다.
 }
 
 // 시각(`at`)은 위에서 한 번 정했다. CAS 재시도마다 바뀌면 같은 표가 매번 다른
@@ -940,8 +878,7 @@ for (let attempt = 1; attempt <= MAX_CAS_RETRIES; attempt++) {
     // 무엇이 적혔는지 모르고, 모르는 칸은 아무도 안 읽는다.
     console.log(
       `  본 것: ${shown.files === null ? '못 쟀음' : `${shown.files}파일 +${shown.insertions}/-${shown.deletions}`}`
-      + `  ·  던지기 직전 판정: ${shown.gate}`
-      + `  ·  axMap 사본: ${shown.axmap.behind === null ? '뒤처짐 못 쟀음' : `${shown.axmap.behind}커밋 뒤`}`,
+      + `  ·  던지기 직전 판정: ${shown.gate}`,
     )
     if (voteValue === 'reject') {
       console.log('  reject 는 정족수 계산에 들어가지 않습니다 — 판정문에 보이기만 합니다.')

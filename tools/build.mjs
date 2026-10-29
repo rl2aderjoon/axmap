@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** TS owns migrated modules; checked-in JS keeps Node 20 and vendored installs usable. */
+/** TS owns migrated modules; checked-in JS keeps Node 20 source checkouts and npm installs usable without a build step. */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
