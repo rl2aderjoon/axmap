@@ -16,7 +16,8 @@
     "codex-view",
     "codex-release-view",
     "claude-workspace-repo",
-    "claude-merge-workspace"
+    "claude-merge-workspace",
+    "claude-vendor-retire"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
