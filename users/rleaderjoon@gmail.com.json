@@ -14,7 +14,8 @@
     "release-207",
     "claude-statusline",
     "codex-view",
-    "codex-release-view"
+    "codex-release-view",
+    "claude-workspace-repo"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
