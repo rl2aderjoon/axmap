@@ -5,6 +5,8 @@ export function normalizeUsage(provider, raw) {
     if (!raw || typeof raw !== 'object')
         return null;
     const counters = raw;
+    if (provider === 'claude')
+        return claudeUsage(counters);
     const candidate = provider === 'codex' ? {
         inputTokens: counters.inputTokens, cachedInputTokens: counters.cachedInputTokens,
         outputTokens: counters.outputTokens, reasoningTokens: counters.reasoningOutputTokens,
@@ -24,6 +26,20 @@ export function normalizeUsage(provider, raw) {
     if (u.cachedInputTokens > u.inputTokens || u.reasoningTokens > u.outputTokens)
         return null;
     return u;
+}
+// Claude Code result.usage: input_tokens, cache_creation_input_tokens and
+// cache_read_input_tokens never overlap, so all three are processed input.
+function claudeUsage(counters) {
+    const input = counters.input_tokens, created = counters.cache_creation_input_tokens, read = counters.cache_read_input_tokens;
+    const output = counters.output_tokens, thinking = counters.thinking_tokens ?? 0;
+    if (![input, created, read, output, thinking].every(count))
+        return null;
+    const processed = input + created + read;
+    const total = processed + output;
+    if (thinking > output)
+        return null;
+    return { inputTokens: processed, cachedInputTokens: read, outputTokens: output,
+        reasoningTokens: thinking, totalTokens: total, providerTotalTokens: total };
 }
 export function usageDelta(current, previous = null) {
     if (!current)

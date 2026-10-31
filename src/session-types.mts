@@ -1,5 +1,5 @@
 /** Shared contracts for the local bridge. Runtime input checks still guard external data. */
-export type Provider = 'codex' | 'agy'
+export type Provider = 'codex' | 'agy' | 'claude'
 export type Transport = 'console' | 'stdio' | 'pty' | 'agentapi'
 export type SessionState = 'starting' | 'running' | 'idle' | 'awaiting_user' | 'settling' | 'closed' | 'unknown'
 export type RequestState = 'sending' | 'submitted' | 'unknown' | 'completed' | 'failed' | 'superseded'

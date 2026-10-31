@@ -34,12 +34,13 @@ try {
     case 'connect':
     case 'serve': {
       const provider = args[1]
-      if (!['codex', 'agy'].includes(provider)) throw new Error('axmap bridge serve codex|agy를 사용하세요.')
+      if (!['codex', 'agy', 'claude'].includes(provider)) throw new Error('axmap bridge serve codex|agy|claude를 사용하세요.')
       const binary = resolveBin(provider)
       if (!binary) throw new Error(`${provider} 실행 파일을 찾지 못했습니다.`)
       const [executable, ...prefix] = provider === 'codex' ? codexInvocation(binary) : [binary]
       if (command === 'connect' && (!option('thread') || !option('socket'))) throw new Error('bridge connect codex --thread <기존 UUID> --socket <로컬 경로>가 필요합니다.')
       const session = await startManagedSession({ provider, executable, prefix, model: option('model'), role: option('role'),
+        ...(provider === 'claude' && option('permission-mode') ? { permissionMode: option('permission-mode') } : {}),
         ...(command === 'connect' ? { existingThreadId: option('thread'), socketPath: option('socket'), observeActive: args.includes('--observe') } : {}),
         maxTokens: Number(option('max-tokens') || 100000), onEvent: output })
       output({ event: 'connected', ...session, exited: undefined, close: undefined })
@@ -95,7 +96,8 @@ try {
     case undefined:
     case '--help':
       console.log(`axMap 로컬 세션 연결 — 관리형 Codex/agy와 제한된 자동 대화
-axmap bridge serve codex|agy [--model 이름] [--role 역할] [--max-tokens 100000]
+axmap bridge serve codex|agy|claude [--model 이름] [--role 역할] [--max-tokens 100000]
+    claude 는 --permission-mode default|plan|acceptEdits (기본 default: 읽기만, 고치기는 거절)
     명시적으로 새 관리형 CLI를 시작합니다. 기존 창에 임의로 붙지 않습니다.
 axmap bridge connect codex --thread <기존 UUID> --socket <로컬 socket> [--role 역할] [--observe]
     실행 중인 공식 Codex daemon의 기존 idle 대화에 연결합니다. 새 모델/대화를 만들지 않습니다.

@@ -38,10 +38,14 @@ test('provider totals do not double-count cached input or reasoning; missing/reg
   assert.equal(sumUsage([codex, agy]).totalTokens, 320)
   assert.equal(sumUsage([codex, null]), null)
   assert.equal(normalizeUsage('agy', {}), null)
+  const claude = normalizeUsage('claude', { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 50,
+    output_tokens: 10, thinking_tokens: 2 })
+  assert.deepEqual(claude, codex, 'claude counts the same processed tokens as codex for the same work')
+  assert.equal(normalizeUsage('claude', { input_tokens: 1 }), null)
   assert.equal(usageDelta(codex, { ...codex, totalTokens: 200 }), null)
 })
 
-for (const provider of ['codex', 'agy']) test(`${provider}: persistent protocol, request identity, usage deltas, auth, busy rejection and idle cost`, async () => withRepo(async cwd => {
+for (const provider of ['codex', 'agy', 'claude']) test(`${provider}: persistent protocol, request identity, usage deltas, auth, busy rejection and idle cost`, async () => withRepo(async cwd => {
   const events = []
   const session = await startManagedSession({ provider, executable: process.execPath,
     prefix: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url))],
@@ -61,7 +65,10 @@ for (const provider of ['codex', 'agy']) test(`${provider}: persistent protocol,
       })
       assert.equal(result.result, prompt === 'recall' ? '731' : 'ok')
       assert.equal(result.usage.totalTokens, 160, 'each turn is the delta, not the cumulative counter')
-      assert.equal(result.conversationId, session.conversationId)
+      // Claude 는 첫 실행의 init 에서 대화 ID 가 정해지므로 시작 시점 값이 아니라 세션 기록과 비교한다.
+      assert.ok(result.conversationId)
+      assert.equal(result.conversationId, sessions(cwd)[0].conversationId)
+      if (provider !== 'claude') assert.equal(result.conversationId, session.conversationId)
     }
     assert.equal(sessions(cwd)[0].usage.totalTokens, 320)
     await wait(100)
@@ -83,18 +90,18 @@ test('Codex approval remains pending until the exact request receives a decision
   } finally { s.close(); await s.exited }
 }))
 
-test('wrong provider conversation closes the session with an uncertain outcome', async () => withRepo(async cwd => {
-  const s = await startManagedSession({ provider: 'agy', executable: process.execPath,
-    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), 'agy', 'wrong-id'], cwd })
+for (const provider of ['agy', 'claude']) test(`${provider}: wrong provider conversation closes the session with an uncertain outcome`, async () => withRepo(async cwd => {
+  const s = await startManagedSession({ provider, executable: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), provider, 'wrong-id'], cwd })
   const id = randomUUID()
   await sendTerminal(s.id, { action: 'submit', request: { id, to: s.id, prompt: 'example' } })
   await s.exited
   assert.equal(sessions(cwd)[0].state, 'closed')
 }))
 
-test('missing measured usage blocks subsequent dispatch rather than treating it as free', async () => withRepo(async cwd => {
-  const s = await startManagedSession({ provider: 'agy', executable: process.execPath,
-    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), 'agy', 'no-usage'], cwd })
+for (const provider of ['agy', 'claude']) test(`${provider}: missing measured usage blocks subsequent dispatch rather than treating it as free`, async () => withRepo(async cwd => {
+  const s = await startManagedSession({ provider, executable: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), provider, 'no-usage'], cwd })
   try {
     const id = randomUUID()
     await sendTerminal(s.id, { action: 'submit', request: { id, to: s.id, prompt: 'example' } })

@@ -19,6 +19,7 @@ interface ManagedSessionOptions {
   cwd?: string; maxTokens?: number; timeoutMs?: number; onEvent?: (event: Record<string, unknown>) => void
   existingThreadId?: string; socketPath?: string
   observeActive?: boolean
+  permissionMode?: string
 }
 interface ProviderMessage {
   id?: string | number; method?: string; event?: string; conversation_id?: string
@@ -30,14 +31,19 @@ interface ProviderMessage {
   }
 }
 interface AgyResult { conversation_id: string; status: string; response?: unknown; error?: string; usage?: unknown }
+interface ClaudeMessage { type?: string; subtype?: string; session_id?: string; result?: unknown; is_error?: boolean
+  usage?: { output_tokens_details?: { thinking_tokens?: number }; [key: string]: unknown } }
+const CLAUDE_USAGE_KEYS = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens', 'thinking_tokens'] as const
 
 // 생존 확인(bridge.sessions)이 같은 이름을 보도록 한 곳에서 만든다.
 const pipeFor = hostPipe
 const uuid = (value: string | undefined) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '')
 
 export async function startManagedSession({ provider, executable = provider, prefix = [], args = null, model, role = '', existingThreadId, socketPath, observeActive = false,
-  cwd = process.cwd(), maxTokens = 100000, timeoutMs = 120000, onEvent = () => {} }: ManagedSessionOptions) {
-  if (!['codex', 'agy'].includes(provider)) throw new Error('지원하는 세션은 codex 또는 agy입니다.')
+  permissionMode = 'default', cwd = process.cwd(), maxTokens = 100000, timeoutMs = 120000, onEvent = () => {} }: ManagedSessionOptions) {
+  if (!['codex', 'agy', 'claude'].includes(provider)) throw new Error('지원하는 세션은 codex, agy 또는 claude입니다.')
+  // 읽기 전용이 기본이다(Codex 의 sandbox read-only 와 같은 자리). 고쳐도 되는 세션은 사람이 serve 할 때 고른다.
+  if (!['default', 'plan', 'acceptEdits'].includes(permissionMode)) throw new Error('claude 권한은 default, plan 또는 acceptEdits입니다.')
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('양의 토큰/시간 한도가 필요합니다.')
   if (typeof role !== 'string' || role.length > 1000) throw new Error('역할은 1000자 이하여야 합니다.')
   if (existingThreadId && (provider !== 'codex' || !uuid(existingThreadId) || !socketPath || model || args)) throw new Error('기존 Codex thread와 로컬 socket이 필요하며 모델·실행 인수를 바꾸지 않습니다.')
@@ -48,6 +54,8 @@ export async function startManagedSession({ provider, executable = provider, pre
     registeredAt: new Date().toISOString(), usage: null, usageKnown: true, maxTokens }
   const jobs = new Map<string, JobRecord>()
   let attachedUsageOrigin: Usage | null = null
+  // Claude Code 는 실행마다 그 실행분만 준다. 다른 provider 처럼 누적값으로 다루려고 여기서 더한다.
+  let claudeTotals: Record<string, number> | null = null
   let initialThreadState = 'idle'
   const calls = new Map<string | number, { resolve: (result: unknown) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>()
   let child: ProviderProcess | undefined, sequence = 0, pending: JobRecord | null = null, closed = false, buffer = '', stderr = '', turnTimer: NodeJS.Timeout | undefined
@@ -131,6 +139,7 @@ export async function startManagedSession({ provider, executable = provider, pre
     const prompt = `[axMap request ${request.id}]\n요청자: ${request.from || 'axmap'}\n${role ? `역할: ${role}\n` : ''}${request.prompt}`
     turnTimer = setTimeout(() => shutdown('실행 시간 한도 초과. 완료 여부가 불명확하므로 자동 재시도하지 않습니다.'), timeoutMs)
     if (provider === 'agy') write({ event: 'user', message: { content: prompt } })
+    else if (provider === 'claude') write({ type: 'user', message: { role: 'user', content: prompt } })
     else rpc<{ turn: { id: string } }>('turn/start', { threadId: s.conversationId, input: [{ type: 'text', text: prompt }], ...(!existingThreadId ? { effort: 'low' } : {}) })
       .then(r => { if (pending?.id === request.id) pending.turnId = r.turn.id })
       .catch(e => shutdown(e.message))
@@ -155,6 +164,8 @@ export async function startManagedSession({ provider, executable = provider, pre
   if (process.platform !== 'win32') fs.chmodSync(pipeFor(id), 0o600)
   save()
   const cliArgs = args || (provider === 'codex' ? ['app-server', '--stdio']
+    : provider === 'claude' ? ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', permissionMode, ...(model ? ['--model', model] : [])]
     : ['--input-format', 'stream-json', '--output-format', 'stream-json', '--disable-slash-commands', '--effort', 'low', ...(model ? ['--model', model] : [])])
   child = existingThreadId ? connectCodexProxy({ executable, prefix, socketPath: socketPath!, cwd }) : spawn(executable, [...prefix, ...cliArgs], { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, AXMAP_AGENT: `${provider}-${id.slice(0, 8)}`, AXMAP_SESSION: id } })
@@ -174,6 +185,23 @@ export async function startManagedSession({ provider, executable = provider, pre
       if (!line.trim()) continue
       try {
         const m = JSON.parse(line) as ProviderMessage
+        if (provider === 'claude') {
+          const c = m as unknown as ClaudeMessage
+          // init 은 실행마다 온다. 첫 init 의 대화 ID 를 붙잡고, 바뀌면 다른 대화에 답이 섞인 것이라 닫는다.
+          if (c.type === 'system' && c.subtype === 'init') {
+            if (!s.conversationId) { s.conversationId = c.session_id; save(); emit({ event: 'conversation', conversationId: s.conversationId }) }
+            else if (c.session_id !== s.conversationId) throw new Error('claude 대화 ID가 바뀌었습니다.')
+          }
+          if (c.type === 'result' && pending) {
+            if (c.session_id !== s.conversationId) throw new Error('claude 대화 ID가 바뀌었습니다.')
+            const turn: Record<string, unknown> | null = c.usage ? { ...c.usage, thinking_tokens: c.usage.output_tokens_details?.thinking_tokens ?? 0 } : null
+            const known = !!turn && CLAUDE_USAGE_KEYS.every(k => Number.isSafeInteger(turn[k]) && (turn[k] as number) >= 0)
+            if (known) claudeTotals = Object.fromEntries(CLAUDE_USAGE_KEYS.map(k => [k, (claudeTotals?.[k] || 0) + (turn![k] as number)]))
+            const ok = c.subtype === 'success' && !c.is_error
+            finish(ok ? 'completed' : 'failed', c.result, ok ? undefined : String(c.result || c.subtype), known ? claudeTotals : null)
+          }
+          continue
+        }
         if (provider === 'agy') {
           if (m.event === 'init') { s.conversationId = m.conversation_id; s.state = 'idle'; s.fullyIdle = true; save(); emit({ event: 'ready', conversationId: s.conversationId }) }
           if (m.event === 'result' && pending) {
@@ -233,6 +261,12 @@ export async function startManagedSession({ provider, executable = provider, pre
       if (existingThreadId && r.thread.id !== existingThreadId) throw new Error('기존 thread ID가 바뀌었습니다.')
       s.conversationId = r.thread.id; s.model = r.model || model || null; s.state = initialThreadState === 'active' ? 'running' : 'idle'; s.fullyIdle = s.state === 'idle'; save()
       emit({ event: 'ready', conversationId: s.conversationId })
+    } else if (provider === 'claude') {
+      // Claude Code 는 첫 입력이 올 때까지 아무것도 내보내지 않는다. 프로세스가 떴으면 대기로 둔다 —
+      // 대화 ID 는 첫 실행의 init 에서 정해진다. 기다리는 동안 모델은 부르지 않는다.
+      await new Promise<void>((resolve, reject) => { child!.once('spawn', () => resolve()); child!.once('error', reject) })
+      if (closed) throw new Error(`claude 시작 실패: ${stderr.slice(-1000)}`)
+      s.state = 'idle'; s.fullyIdle = true; save(); emit({ event: 'ready', conversationId: null })
     } else {
       const deadline = Date.now() + 30000
       while (s.state === 'starting' && !closed && Date.now() < deadline) await new Promise(r => setTimeout(r, 25))
