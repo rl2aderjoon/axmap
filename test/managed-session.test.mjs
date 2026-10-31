@@ -53,6 +53,27 @@ test('done-by: only the named side can end the dialogue; the other side\'s done 
     inventory: () => [left, right].map(id => ({ id, transport: 'stdio', state: 'idle' })) }), /doneBy/)
 }))
 
+test('a request the session refuses before accepting (token limit) is failed with the reason, not unknown, and never blocks the next one', async () => withRepo(async cwd => {
+  const s = await startManagedSession({ provider: 'codex', executable: process.execPath, maxTokens: 100,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), 'codex'], cwd })
+  try {
+    // dispatchRequest 는 자식 프로세스를 동기로 기다려 같은 프로세스의 호스트를 멈추므로, 소켓 호출로 직접 본다.
+    // notDelivered 가 붙은 오류를 dispatchRequest 가 failed 로 기록하는 것은 미전달 시험이 지킨다.
+    const first = { id: randomUUID(), to: s.id, prompt: 'spend', from: 'test' }
+    await sendTerminal(s.id, { action: 'submit', request: first })
+    await until(async () => (await sendTerminal(s.id, { action: 'result', id: first.id })).state === 'completed')
+    for (const attempt of [1, 2]) {
+      const refused = await sendTerminal(s.id, { action: 'submit', request: { id: randomUUID(), to: s.id, prompt: `again ${attempt}`, from: 'test' } })
+        .then(() => null, e => e)
+      assert.ok(refused, `attempt ${attempt} must be refused`)
+      assert.match(refused.message, /토큰 한도/)
+      assert.equal(refused.notDelivered, true, 'a refusal before acceptance is definite, not unknown')
+    }
+    const bad = await sendTerminal(s.id, { action: 'status' }, 'wrong-token').then(() => null, e => e)
+    assert.notEqual(bad?.notDelivered, true, 'an auth failure is not marked as a definite refusal')
+  } finally { s.close(); await s.exited }
+}))
+
 test('provider totals do not double-count cached input or reasoning; missing/regressing usage stays unknown', () => {
   const codex = normalizeUsage('codex', { inputTokens: 150, cachedInputTokens: 50, outputTokens: 10, reasoningOutputTokens: 2, totalTokens: 160 })
   const agy = normalizeUsage('agy', { input_tokens: 100, cache_read_tokens: 50, output_tokens: 10, thinking_tokens: 2, total_tokens: 110 })

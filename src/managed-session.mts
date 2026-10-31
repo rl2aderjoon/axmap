@@ -120,20 +120,24 @@ export async function startManagedSession({ provider, executable = provider, pre
       delete s.pendingApproval; s.state = 'running'; save(); return { answered: true }
     }
     if (message.action !== 'submit') throw new Error('지원하지 않는 로컬 세션 요청입니다.')
-    if (jobs.has(message.request?.id)) throw new Error('이미 접수한 요청 ID입니다. 다시 전송하지 않았습니다.')
-    if (closed || s.state !== 'idle' || pending) throw new Error('세션이 대기 중이 아닙니다. 요청을 전달하지 않았습니다.')
+    // 🔴 여기부터 접수(pending) 전까지의 거절은 모델을 부르지 않은 확정 거절이다. refused 를 붙여 보낸 쪽이
+    //    unknown 이 아니라 failed 로 기록하게 한다 — unknown 으로 남으면 그 세션의 다음 요청이 「이전 요청 미확정」으로
+    //    영영 막힌다(토큰 한도에 걸린 Claude 세션에 보낸 요청이 실제로 그렇게 막혔다).
+    const refuse = (text: string) => Object.assign(new Error(text), { refused: true })
+    if (jobs.has(message.request?.id)) throw refuse('이미 접수한 요청 ID입니다. 다시 전송하지 않았습니다.')
+    if (closed || s.state !== 'idle' || pending) throw refuse('세션이 대기 중이 아닙니다. 요청을 전달하지 않았습니다.')
     if (existingThreadId) {
-      if (checkingSubmission) throw new Error('다른 요청의 상태를 확인 중입니다.')
+      if (checkingSubmission) throw refuse('다른 요청의 상태를 확인 중입니다.')
       checkingSubmission = true
       try {
         const read = await rpc<{ thread: { id: string; status: { type: string } } }>('thread/read', { threadId: existingThreadId })
-        if (closed || pending || read.thread.id !== existingThreadId || read.thread.status.type !== 'idle') throw new Error('기존 대화가 다른 작업 중입니다. 새 요청을 전달하지 않았습니다.')
+        if (closed || pending || read.thread.id !== existingThreadId || read.thread.status.type !== 'idle') throw refuse('기존 대화가 다른 작업 중입니다. 새 요청을 전달하지 않았습니다.')
       } finally { checkingSubmission = false }
     }
-    if (!s.usageKnown) throw new Error('직전 요청의 사용량을 확인하지 못했습니다. 새 연결에서 예산을 확인하세요.')
-    if (s.usage && s.usage.totalTokens - (existingThreadId ? attachedUsageOrigin?.totalTokens ?? s.usage.totalTokens : 0) >= maxTokens) throw new Error('세션 토큰 한도에 도달했습니다.')
+    if (!s.usageKnown) throw refuse('직전 요청의 사용량을 확인하지 못했습니다. 새 연결에서 예산을 확인하세요.')
+    if (s.usage && s.usage.totalTokens - (existingThreadId ? attachedUsageOrigin?.totalTokens ?? s.usage.totalTokens : 0) >= maxTokens) throw refuse('세션 토큰 한도에 도달했습니다.')
     const request = message.request
-    if (!uuid(request?.id) || request.to !== id || typeof request.prompt !== 'string' || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 32768) throw new Error('요청 형식이 올바르지 않습니다.')
+    if (!uuid(request?.id) || request.to !== id || typeof request.prompt !== 'string' || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 32768) throw refuse('요청 형식이 올바르지 않습니다.')
     pending = { id: request.id, to: id, state: 'submitted', baseline: s.usage, baselineKnown: s.usageKnown && (!existingThreadId || !!s.usage), result: '' }
     jobs.set(request.id, pending); s.state = 'running'; s.fullyIdle = false; save()
     const prompt = `[axMap request ${request.id}]\n요청자: ${request.from || 'axmap'}\n${role ? `역할: ${role}\n` : ''}${request.prompt}`
@@ -155,7 +159,7 @@ export async function startManagedSession({ provider, executable = provider, pre
       if (Buffer.byteLength(input) > 65536) return socket.destroy()
       const end = input.indexOf('\n'); if (end < 0) return
       handled = true
-      try { void handle(JSON.parse(input.slice(0, end))).then(result => socket.end(JSON.stringify({ result }) + '\n'), e => socket.end(JSON.stringify({ error: errorMessage(e) }) + '\n')) }
+      try { void handle(JSON.parse(input.slice(0, end))).then(result => socket.end(JSON.stringify({ result }) + '\n'), e => socket.end(JSON.stringify({ error: errorMessage(e), ...((e as { refused?: boolean })?.refused ? { refused: true } : {}) }) + '\n')) }
       catch (e) { socket.end(JSON.stringify({ error: errorMessage(e) }) + '\n') }
     })
   })

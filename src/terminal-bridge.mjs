@@ -49,8 +49,9 @@ export function sendTerminal(id, message, token = null, { timeoutMs = 10000 } = 
             socket.end();
             try {
                 const response = JSON.parse(buffer.slice(0, end));
+                // 세션이 접수 전에 확정 거절했다 — 실행되지 않았으므로 「미전달」과 같은 쪽으로 분류한다.
                 if (response.error)
-                    reject(new Error(response.error));
+                    reject(response.refused ? Object.assign(new Error(response.error), { notDelivered: true }) : new Error(response.error));
                 else
                     resolve(response.result);
             }
