@@ -10,7 +10,7 @@ import { startManagedSession } from '../src/managed-session.mjs'
 import { sendTerminal } from '../src/terminal-bridge.mjs'
 import { normalizeUsage, usageDelta, sumUsage } from '../src/session-usage.mjs'
 import { sessions, dispatchRequest, sessionLeasePath } from '../src/bridge.mjs'
-import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue } from '../src/session-dialogue.mjs'
+import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue, unwrapEnvelope } from '../src/session-dialogue.mjs'
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 async function until(fn) {
@@ -28,6 +28,13 @@ async function withRepo(fn) {
     fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }
+
+test('dialogue accepts one fenced JSON envelope but never guesses around extra prose', () => {
+  assert.equal(unwrapEnvelope('```json\n{"message":"a","done":false}\n```'), '{"message":"a","done":false}')
+  assert.equal(unwrapEnvelope('```\n{"message":"a","done":true}```'), '{"message":"a","done":true}')
+  assert.equal(unwrapEnvelope(' {"message":"a","done":true} '), '{"message":"a","done":true}')
+  assert.throws(() => JSON.parse(unwrapEnvelope('결과입니다:\n```json\n{"message":"a","done":true}\n```')))
+})
 
 test('provider totals do not double-count cached input or reasoning; missing/regressing usage stays unknown', () => {
   const codex = normalizeUsage('codex', { inputTokens: 150, cachedInputTokens: 50, outputTokens: 10, reasoningOutputTokens: 2, totalTokens: 160 })

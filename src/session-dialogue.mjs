@@ -9,6 +9,13 @@ import { randomUUID } from 'node:crypto';
 import { dispatchRequest, requestResult, sessions, bridgeHome, writeJSON, readJSON, repoKey, sessionLeasePath } from './bridge.mjs';
 import { sumUsage } from './session-usage.mjs';
 import { errorCode, errorMessage } from './session-types.mjs';
+// 모델이 JSON 을 ```json 코드 블록으로 감싸 오는 경우가 있다(Claude Code 에서 실제로 흔하다).
+// 감싼 것 하나만 벗긴다. 앞뒤에 다른 글이 붙은 응답은 여전히 형식 오류로 멈춘다 — 짐작해서 꺼내지 않는다.
+export function unwrapEnvelope(raw) {
+    const text = raw.trim();
+    const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/i.exec(text);
+    return fenced ? fenced[1].trim() : text;
+}
 const recordPath = (id) => {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || ''))
         throw new Error('대화 ID는 UUID여야 합니다.');
@@ -146,7 +153,7 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
                 return stop('message_limit', '응답이 길이 한도를 초과하여 상대에게 전달하지 않았습니다.');
             let decoded;
             try {
-                decoded = JSON.parse(response.result.trim());
+                decoded = JSON.parse(unwrapEnvelope(response.result));
             }
             catch {
                 return stop('invalid_response', '협업 응답이 JSON 형식이 아니어서 추가 호출하지 않았습니다.');

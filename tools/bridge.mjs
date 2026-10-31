@@ -41,6 +41,7 @@ try {
       if (command === 'connect' && (!option('thread') || !option('socket'))) throw new Error('bridge connect codex --thread <기존 UUID> --socket <로컬 경로>가 필요합니다.')
       const session = await startManagedSession({ provider, executable, prefix, model: option('model'), role: option('role'),
         ...(provider === 'claude' && option('permission-mode') ? { permissionMode: option('permission-mode') } : {}),
+        ...(option('timeout-ms') ? { timeoutMs: Number(option('timeout-ms')) } : {}),
         ...(command === 'connect' ? { existingThreadId: option('thread'), socketPath: option('socket'), observeActive: args.includes('--observe') } : {}),
         maxTokens: Number(option('max-tokens') || 100000), onEvent: output })
       output({ event: 'connected', ...session, exited: undefined, close: undefined })
@@ -53,6 +54,7 @@ try {
       const options = { ...(option('id') ? { id: option('id') } : {}), left: option('left'), right: option('right'), prompt: fs.readFileSync(0, 'utf8'),
         maxTurns: Number(option('max-turns') || 4), maxTokens: Number(option('max-tokens') || 50000),
         maxMessageChars: Number(option('max-message-chars') || 2000),
+        ...(option('timeout-ms') ? { timeoutMs: Number(option('timeout-ms')) } : {}),
         onEvent: event => console.error(JSON.stringify(event)) }
       const r = args.includes('--background') ? await startBackgroundDialogue(options) : await runDialogue(options)
       output(r); if (r.state !== 'completed') process.exitCode = 2
@@ -98,6 +100,7 @@ try {
       console.log(`axMap 로컬 세션 연결 — 관리형 Codex/agy와 제한된 자동 대화
 axmap bridge serve codex|agy|claude [--model 이름] [--role 역할] [--max-tokens 100000]
     claude 는 --permission-mode default|plan|acceptEdits (기본 default: 읽기만, 고치기는 거절)
+    --timeout-ms 한 실행의 시간 한도(기본 120000). 넘기면 결과가 불명확하므로 세션을 닫고 재시도하지 않습니다.
     명시적으로 새 관리형 CLI를 시작합니다. 기존 창에 임의로 붙지 않습니다.
 axmap bridge connect codex --thread <기존 UUID> --socket <로컬 socket> [--role 역할] [--observe]
     실행 중인 공식 Codex daemon의 기존 idle 대화에 연결합니다. 새 모델/대화를 만들지 않습니다.

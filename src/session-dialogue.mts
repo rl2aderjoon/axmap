@@ -10,6 +10,14 @@ import { sumUsage } from './session-usage.mjs'
 import { errorCode, errorMessage } from './session-types.mjs'
 import type { DialogueOptions, DialogueRecord, DialogueState, DialogueTurn } from './session-types.mjs'
 
+// 모델이 JSON 을 ```json 코드 블록으로 감싸 오는 경우가 있다(Claude Code 에서 실제로 흔하다).
+// 감싼 것 하나만 벗긴다. 앞뒤에 다른 글이 붙은 응답은 여전히 형식 오류로 멈춘다 — 짐작해서 꺼내지 않는다.
+export function unwrapEnvelope(raw: string): string {
+  const text = raw.trim()
+  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/i.exec(text)
+  return fenced ? fenced[1].trim() : text
+}
+
 const recordPath = (id: string) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '')) throw new Error('대화 ID는 UUID여야 합니다.')
   return path.join(bridgeHome(), 'dialogues', `${id}.json`)
@@ -117,7 +125,7 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
       if (!turn.usage || !dialogue.usage) return stop('usage_unavailable', '사용량을 확인할 수 없어 다음 모델 호출을 중단했습니다.')
       if (typeof response.result !== 'string' || response.result.length > maxMessageChars + 256) return stop('message_limit', '응답이 길이 한도를 초과하여 상대에게 전달하지 않았습니다.')
       let decoded: unknown
-      try { decoded = JSON.parse(response.result.trim()) } catch { return stop('invalid_response', '협업 응답이 JSON 형식이 아니어서 추가 호출하지 않았습니다.') }
+      try { decoded = JSON.parse(unwrapEnvelope(response.result)) } catch { return stop('invalid_response', '협업 응답이 JSON 형식이 아니어서 추가 호출하지 않았습니다.') }
       if (!decoded || typeof decoded !== 'object') return stop('invalid_response', 'message와 done 필드가 필요합니다.')
       const envelope = decoded as Record<string, unknown>
       if (typeof envelope.message !== 'string' || !envelope.message.trim() || typeof envelope.done !== 'boolean') return stop('invalid_response', 'message와 done 필드가 필요합니다.')
