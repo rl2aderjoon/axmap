@@ -1,0 +1,17 @@
+{
+  "agent": "janghyojoon",
+  "task": null,
+  "intent": "자동 대화에 --done-by 를 더해 끝낼 권한을 한쪽(리뷰어)에만 준다 — 편집자가 혼자 끝내 재확인이 빠진 문제",
+  "actor": "agent",
+  "session": "ff0d5494-2930-4ec9-b475-d8fe34e707eb",
+  "since": "2026-10-31T11:47:43.424Z",
+  "ttlMs": 2700000,
+  "paths": [
+    "src/session-dialogue.mjs",
+    "src/session-dialogue.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "test/managed-session.test.mjs",
+    "tools/bridge.mjs"
+  ]
+}
