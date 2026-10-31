@@ -61,7 +61,8 @@ export async function startBackgroundDialogue(options) {
     try {
         const args = [fileURLToPath(new URL('../tools/bridge.mjs', import.meta.url)), 'chat', '--id', id,
             '--left', options.left, '--right', options.right,
-            ...['maxTurns', 'maxTokens', 'maxMessageChars'].flatMap(key => options[key] === undefined ? [] :
+            // 🔴 timeoutMs 를 빠뜨리면 백그라운드 중계가 기본 120초로 돌아, 길게 준 시간 한도가 조용히 무시된다.
+            ...['maxTurns', 'maxTokens', 'maxMessageChars', 'timeoutMs', 'doneBy'].flatMap(key => options[key] === undefined ? [] :
                 [`--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, String(options[key])])];
         const child = spawn(process.execPath, args, { cwd, detached: true, windowsHide: true, stdio: [inputFD, logFD, logFD] });
         await new Promise((resolve, reject) => { child.once('spawn', () => resolve()); child.once('error', reject); });
@@ -77,7 +78,7 @@ export async function startBackgroundDialogue(options) {
         fs.closeSync(logFD);
     }
 }
-export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd = process.cwd(), maxTurns = 4, maxTokens = 50000, maxMessageChars = 2000, timeoutMs = 120000, onEvent = () => { }, dispatch = dispatchRequest, result = requestResult, inventory = sessions }) {
+export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd = process.cwd(), maxTurns = 4, maxTokens = 50000, maxMessageChars = 2000, timeoutMs = 120000, doneBy, onEvent = () => { }, dispatch = dispatchRequest, result = requestResult, inventory = sessions }) {
     try {
         validate({ left, right, prompt, cwd, maxTurns, maxTokens, maxMessageChars, timeoutMs, inventory });
     }
@@ -86,6 +87,10 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
         // Persist that failure instead of leaving its accepted receipt queued forever.
         writeJSON(recordPath(id), { id, repo: repoKey(cwd), state: 'failed', reason: errorMessage(e), turns: [] });
         throw e;
+    }
+    if (doneBy !== undefined && doneBy !== left && doneBy !== right) {
+        writeJSON(recordPath(id), { id, repo: repoKey(cwd), state: 'failed', reason: 'doneBy 는 두 세션 중 하나여야 합니다.', turns: [] });
+        throw new Error('doneBy 는 두 세션 중 하나여야 합니다.');
     }
     const dialogue = { id, repo: repoKey(cwd), left, right, state: 'running', createdAt: new Date().toISOString(),
         limits: { maxTurns, maxTokens, maxMessageChars, timeoutMs }, turns: [], usage: sumUsage([]), knownUsage: sumUsage([]), usagePending: false };
@@ -172,7 +177,8 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
             turn.done = envelope.done;
             save();
             onEvent({ event: 'completed', ...turn, cumulativeUsage: dialogue.usage });
-            if (envelope.done)
+            // 끝낼 권한이 없는 쪽의 done 은 기록만 하고 계속 중계한다 — 편집자가 혼자 끝내면 리뷰어의 재확인이 빠진다.
+            if (envelope.done && (!doneBy || to === doneBy))
                 return stop('completed', '상대 세션이 작업 완료를 보고했습니다.');
             message = envelope.message;
         }

@@ -57,7 +57,8 @@ export async function startBackgroundDialogue(options: DialogueOptions) {
   try {
     const args = [fileURLToPath(new URL('../tools/bridge.mjs', import.meta.url)), 'chat', '--id', id,
       '--left', options.left, '--right', options.right,
-      ...(['maxTurns', 'maxTokens', 'maxMessageChars'] as const).flatMap(key => options[key] === undefined ? [] :
+      // 🔴 timeoutMs 를 빠뜨리면 백그라운드 중계가 기본 120초로 돌아, 길게 준 시간 한도가 조용히 무시된다.
+      ...(['maxTurns', 'maxTokens', 'maxMessageChars', 'timeoutMs', 'doneBy'] as const).flatMap(key => options[key] === undefined ? [] :
         [`--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, String(options[key])])]
     const child = spawn(process.execPath, args, { cwd, detached: true, windowsHide: true, stdio: [inputFD, logFD, logFD] })
     await new Promise<void>((resolve, reject) => { child.once('spawn', () => resolve()); child.once('error', reject) })
@@ -68,7 +69,7 @@ export async function startBackgroundDialogue(options: DialogueOptions) {
 }
 
 export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd = process.cwd(), maxTurns = 4,
-  maxTokens = 50000, maxMessageChars = 2000, timeoutMs = 120000, onEvent = () => {},
+  maxTokens = 50000, maxMessageChars = 2000, timeoutMs = 120000, doneBy, onEvent = () => {},
   dispatch = dispatchRequest, result = requestResult, inventory = sessions }: DialogueOptions): Promise<DialogueRecord> {
   try { validate({ left, right, prompt, cwd, maxTurns, maxTokens, maxMessageChars, timeoutMs, inventory }) }
   catch (e) {
@@ -76,6 +77,10 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
     // Persist that failure instead of leaving its accepted receipt queued forever.
     writeJSON(recordPath(id), { id, repo: repoKey(cwd), state: 'failed', reason: errorMessage(e), turns: [] })
     throw e
+  }
+  if (doneBy !== undefined && doneBy !== left && doneBy !== right) {
+    writeJSON(recordPath(id), { id, repo: repoKey(cwd), state: 'failed', reason: 'doneBy 는 두 세션 중 하나여야 합니다.', turns: [] })
+    throw new Error('doneBy 는 두 세션 중 하나여야 합니다.')
   }
   const dialogue: DialogueRecord = { id, repo: repoKey(cwd), left, right, state: 'running', createdAt: new Date().toISOString(),
     limits: { maxTurns, maxTokens, maxMessageChars, timeoutMs }, turns: [], usage: sumUsage([]), knownUsage: sumUsage([]), usagePending: false }
@@ -134,7 +139,8 @@ export async function runDialogue({ id = randomUUID(), left, right, prompt, cwd 
       if (typeof envelope.message !== 'string' || !envelope.message.trim() || typeof envelope.done !== 'boolean') return stop('invalid_response', 'message와 done 필드가 필요합니다.')
       if (envelope.message.length > maxMessageChars) return stop('message_limit', '메시지 길이 한도 초과')
       turn.message = envelope.message; turn.done = envelope.done; save(); onEvent({ event: 'completed', ...turn, cumulativeUsage: dialogue.usage })
-      if (envelope.done) return stop('completed', '상대 세션이 작업 완료를 보고했습니다.')
+      // 끝낼 권한이 없는 쪽의 done 은 기록만 하고 계속 중계한다 — 편집자가 혼자 끝내면 리뷰어의 재확인이 빠진다.
+      if (envelope.done && (!doneBy || to === doneBy)) return stop('completed', '상대 세션이 작업 완료를 보고했습니다.')
       message = envelope.message
     }
     return stop('turn_limit', '왕복 실행 횟수 한도에 도달했습니다.')

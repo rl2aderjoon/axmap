@@ -113,6 +113,8 @@ export interface DialogueRecord {
 export interface DialogueOptions {
   id?: string; left: string; right: string; prompt: string; cwd?: string
   maxTurns?: number; maxTokens?: number; maxMessageChars?: number; timeoutMs?: number
+  /** 이 세션의 done:true 만 대화를 끝낸다. 없으면 어느 쪽이든 끝낼 수 있다. */
+  doneBy?: string
   onEvent?: (event: Record<string, unknown>) => void
   dispatch?: (options: DispatchOptions) => RequestRecord
   result?: (id: string, cwd: string) => RequestRecord

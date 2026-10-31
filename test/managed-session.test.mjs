@@ -36,6 +36,23 @@ test('dialogue accepts one fenced JSON envelope but never guesses around extra p
   assert.throws(() => JSON.parse(unwrapEnvelope('결과입니다:\n```json\n{"message":"a","done":true}\n```')))
 })
 
+test('done-by: only the named side can end the dialogue; the other side\'s done is recorded and relayed', async () => withRepo(async cwd => {
+  const left = randomUUID(), right = randomUUID(), replies = new Map()
+  const usage = { inputTokens: 10, cachedInputTokens: 0, outputTokens: 1, reasoningTokens: 0, totalTokens: 11, providerTotalTokens: 11 }
+  let n = 0
+  const script = [false, true, false, true]  // left, right(done 무시), left, right… 실제로는 left 의 done 으로 끝나야 한다
+  const r = await runDialogue({ left, right, prompt: 'go', cwd, maxTurns: 6, maxTokens: 1000, doneBy: left,
+    inventory: () => [left, right].map(id => ({ id, transport: 'stdio', state: 'idle' })),
+    dispatch: ({ to }) => { const id = randomUUID(); const i = n++; replies.set(id, { to, done: to === left ? i >= 2 : script[i] }); return { id, state: 'submitted' } },
+    result: id => { const x = replies.get(id); return { state: 'completed', usage, result: JSON.stringify({ message: 'm', done: x.done }) } } })
+  assert.equal(r.state, 'completed')
+  assert.equal(r.turns.length, 3, 'right said done at turn 2 but only left may end')
+  assert.equal(r.turns[1].done, true)
+  assert.equal(r.turns.at(-1).to, left)
+  await assert.rejects(runDialogue({ left, right, prompt: 'go', cwd, doneBy: randomUUID(),
+    inventory: () => [left, right].map(id => ({ id, transport: 'stdio', state: 'idle' })) }), /doneBy/)
+}))
+
 test('provider totals do not double-count cached input or reasoning; missing/regressing usage stays unknown', () => {
   const codex = normalizeUsage('codex', { inputTokens: 150, cachedInputTokens: 50, outputTokens: 10, reasoningOutputTokens: 2, totalTokens: 160 })
   const agy = normalizeUsage('agy', { input_tokens: 100, cache_read_tokens: 50, output_tokens: 10, thinking_tokens: 2, total_tokens: 110 })

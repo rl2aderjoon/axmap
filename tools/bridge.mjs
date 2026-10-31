@@ -55,6 +55,7 @@ try {
         maxTurns: Number(option('max-turns') || 4), maxTokens: Number(option('max-tokens') || 50000),
         maxMessageChars: Number(option('max-message-chars') || 2000),
         ...(option('timeout-ms') ? { timeoutMs: Number(option('timeout-ms')) } : {}),
+        ...(option('done-by') ? { doneBy: option('done-by') } : {}),
         onEvent: event => console.error(JSON.stringify(event)) }
       const r = args.includes('--background') ? await startBackgroundDialogue(options) : await runDialogue(options)
       output(r); if (r.state !== 'completed') process.exitCode = 2
@@ -105,7 +106,8 @@ axmap bridge serve codex|agy|claude [--model 이름] [--role 역할] [--max-toke
 axmap bridge connect codex --thread <기존 UUID> --socket <로컬 socket> [--role 역할] [--observe]
     실행 중인 공식 Codex daemon의 기존 idle 대화에 연결합니다. 새 모델/대화를 만들지 않습니다.
     --observe는 active 대화에도 관측만 연결하며 idle 전환 전에는 새 요청을 거절합니다.
-axmap bridge chat --left <UUID> --right <UUID> [--max-turns 4] [--max-tokens 50000]
+axmap bridge chat --left <UUID> --right <UUID> [--max-turns 4] [--max-tokens 50000] [--done-by <UUID>] [--timeout-ms 120000]
+    --done-by 를 주면 그 세션의 done:true 만 대화를 끝냅니다(다른 쪽 done 은 기록만).
     stdin 작업을 자동 중계합니다. 기본 메시지 한도 2000자, 대기 중 모델 호출 없음.
 axmap bridge answer --to <UUID> --request <ID> --decision accept|decline|cancel
     Codex가 요청한 이번 실행의 승인을 사용자가 결정합니다.
