@@ -1,0 +1,13 @@
+{
+  "agent": "janghyojoon",
+  "task": null,
+  "intent": "자동 대화 중계 문구가 파일 확인·수정이 필요한 작업에서도 도구를 막는 것으로 읽혀 실작업이 멈춘 것을 고친다",
+  "actor": "agent",
+  "session": "ff0d5494-2930-4ec9-b475-d8fe34e707eb",
+  "since": "2026-10-31T11:42:45.871Z",
+  "ttlMs": 2700000,
+  "paths": [
+    "src/session-dialogue.mjs",
+    "src/session-dialogue.mts"
+  ]
+}
