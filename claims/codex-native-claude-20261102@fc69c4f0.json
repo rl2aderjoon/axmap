@@ -1,0 +1,27 @@
+{
+  "agent": "codex-native-claude-20261102",
+  "task": "native-claude",
+  "intent": "Attach ordinary Claude Code terminal via hooks and native console; FIFO busy queue",
+  "actor": null,
+  "session": "native-claude-20261102",
+  "since": "2026-11-02T12:59:29.254Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/SESSION-BRIDGE.md",
+    "docs/SPEC.md",
+    "src/bridge.mjs",
+    "src/bridge.mts",
+    "src/external-console.mjs",
+    "src/external-console.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "src/terminal-bridge.mjs",
+    "src/terminal-bridge.mts",
+    "test/external-console.test.mjs",
+    "test/terminal-bridge.test.mjs",
+    "tools/console-queue.mjs",
+    "tools/run.mjs",
+    "tools/windows-console.cs",
+    "tools/windows-console.ps1"
+  ]
+}
