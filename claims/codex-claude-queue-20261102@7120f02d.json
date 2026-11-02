@@ -1,10 +1,10 @@
 {
   "agent": "codex-claude-queue-20261102",
   "task": "claude-codex-queue",
-  "intent": "Expose queued dispatch in MCP progress",
+  "intent": "Show queued execution status",
   "actor": null,
   "session": "claude-queue-20261102",
-  "since": "2026-11-02T12:49:12.552Z",
+  "since": "2026-11-02T12:51:44.471Z",
   "ttlMs": 1800000,
   "paths": [
     "docs/SESSION-BRIDGE.md",
@@ -14,6 +14,8 @@
     "src/bridge.mts",
     "src/managed-session.mjs",
     "src/managed-session.mts",
+    "src/monitor.mjs",
+    "src/monitor.mts",
     "src/pipeline-mcp.mjs",
     "src/pipeline-mcp.mts",
     "src/session-types.mjs",
