@@ -1,0 +1,22 @@
+{
+  "agent": "codex-claude-queue-20261102",
+  "task": "claude-codex-queue",
+  "intent": "Claude Codex persistent managed dispatch with busy FIFO queue",
+  "actor": null,
+  "session": "claude-queue-20261102",
+  "since": "2026-11-02T12:47:17.353Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/SESSION-BRIDGE.md",
+    "docs/SPEC.md",
+    "mcp/server.mjs",
+    "src/bridge.mjs",
+    "src/bridge.mts",
+    "src/managed-session.mjs",
+    "src/managed-session.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "test/managed-session.test.mjs",
+    "tools/bridge.mjs"
+  ]
+}
