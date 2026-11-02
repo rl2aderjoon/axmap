@@ -89,8 +89,8 @@ try {
     case 'send': {
       const waitMs = Number(option('wait-ms') || 0)
       if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 30000) throw new Error('wait-ms는 0~30000 정수여야 합니다.')
-      const r = dispatchRequest({ to: option('to'), prompt: fs.readFileSync(0, 'utf8'), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap' })
-      const result = waitMs && r.state === 'submitted' ? await waitForRequest(r.id, process.cwd(), waitMs) : r
+      const r = dispatchRequest({ to: option('to'), prompt: fs.readFileSync(0, 'utf8'), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap', queueIfBusy: !args.includes('--no-queue') })
+      const result = waitMs && ['queued', 'submitted'].includes(r.state) ? await waitForRequest(r.id, process.cwd(), waitMs) : r
       output(result)
       if (result.state === 'unknown') process.exitCode = 2
       break
@@ -118,9 +118,10 @@ axmap bridge install --experimental --executable <agy 절대 경로>   연결 �
 axmap bridge uninstall                             추가한 연결 훅 해제
 axmap bridge sessions                              이 repo에 연결된 세션
 axmap bridge notice --to <UUID>                    stdin 안내를 기존 Codex 문맥에 기록 (모델 호출 없음)
-axmap bridge attach --pid <PID>                    이미 실행한 Windows agy 콘솔을 현재 repo에 연결
+axmap bridge attach --pid <PID>                    이미 실행한 Windows agy·Claude 콘솔을 현재 repo에 연결
 axmap bridge status [--json]                        로컬 연결·작업·승인 대기·종료 상태 조회 (모델 호출 없음)
 axmap bridge send --to <세션 UUID> [--wait-ms 30000] 본문은 stdin. 전달 후 지정 시간까지 로컬에서 회신 대기
+    관리형 stdio와 Windows 일반 Claude 콘솔은 작업 중 FIFO 접수 후 실행합니다. --no-queue로 거절 모드.
     send는 실행용 저수준 명령입니다. 일반 협업 알림에는 message를 사용하세요.
 axmap bridge message --to <UUID> [--topic <갱신 주제>] [--key <중복 방지 키>] [--ttl-seconds 3600]
     stdin 일반 메시지를 큐에 저장합니다. 모델 호출·새 턴 없음. 같은 발신자의 대기 중 topic만 최신으로 합칩니다.

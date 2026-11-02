@@ -209,18 +209,18 @@ export function installTerminalRuntime(sourceRoot: string, destRoot = ROOT) {
 }
 
 export function installTerminalHooks(home = os.homedir(), provider = 'agy') {
-  if (!['agy', 'codex'].includes(provider)) throw new Error('지원하지 않는 CLI 훅입니다.')
+  if (!['agy', 'codex', 'claude'].includes(provider)) throw new Error('지원하지 않는 CLI 훅입니다.')
   const target = provider === 'agy' ? path.join(home, '.gemini', 'config', 'hooks.json')
-    : path.join(home, '.codex', 'hooks.json')
+    : provider === 'claude' ? path.join(home, '.claude', 'settings.json') : path.join(home, '.codex', 'hooks.json')
   const config = fs.existsSync(target) ? readJSON<HookConfig>(target) : {}
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('기존 hooks.json을 읽지 못했습니다.')
-  if (provider === 'codex' && config.hooks !== undefined && (!config.hooks || typeof config.hooks !== 'object' || Array.isArray(config.hooks))) throw new Error('기존 Codex hooks 설정이 객체가 아닙니다.')
+  if (provider !== 'agy' && config.hooks !== undefined && (!config.hooks || typeof config.hooks !== 'object' || Array.isArray(config.hooks))) throw new Error('기존 Codex hooks 설정이 객체가 아닙니다.')
   const definition: Record<string, CommandHook[]> = {}
   const script = path.join(ROOT, 'tools', 'run.mjs')
   if ([process.execPath, script].some(p => /["\r\n%&|<>^]/.test(p))) throw new Error('훅 경로에 지원하지 않는 셸 문자가 있습니다.')
-  for (const event of provider === 'agy' ? ['SessionStart', 'PreInvocation', 'Stop'] : ['SessionStart', 'UserPromptSubmit', 'Stop']) {
-    let command = `"${process.execPath}" "${script}" hook ${event}`
-    if (process.platform === 'win32') {
+  for (const event of provider === 'agy' ? ['SessionStart', 'PreInvocation', 'Stop'] : provider === 'claude' ? ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'] : ['SessionStart', 'UserPromptSubmit', 'Stop']) {
+    let command = `"${process.execPath.replaceAll('\\', '/')}" "${script.replaceAll('\\', '/')}" hook ${event} --provider ${provider}`
+    if (process.platform === 'win32' && provider !== 'claude') {
       const wrapper = path.join(home, '.axmap', 'bridge', `terminal-${provider}-${event}.cmd`)
       if (/[\s"%&|<>^]/.test(wrapper)) throw new Error('이 Windows 훅 경로에는 공백/셸 문자를 사용할 수 없습니다.')
       fs.mkdirSync(path.dirname(wrapper), { recursive: true })
@@ -232,11 +232,16 @@ export function installTerminalHooks(home = os.homedir(), provider = 'agy') {
       config.hooks ||= {}
       const existing = config.hooks[event] || []
       if (!Array.isArray(existing)) throw new Error(`기존 Codex ${event} 설정이 배열이 아닙니다.`)
-      config.hooks[event] = existing.filter(group => !(Array.isArray(group.hooks) && group.hooks.some(h => h.statusMessage === 'axMap terminal bridge')))
+      config.hooks[event] = existing.flatMap(group => {
+        if (!Array.isArray(group.hooks)) return [group]
+        const hooks = group.hooks.filter(h => h.statusMessage !== 'axMap terminal bridge')
+        return hooks.length ? [{ ...group, hooks }] : []
+      })
       config.hooks[event].push({ hooks: [{ type: 'command', command, timeout: 10, statusMessage: 'axMap terminal bridge' }] })
     }
   }
   if (provider === 'agy') config['axmap-terminal'] = definition
+  if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.axmap-${randomUUID()}.bak`)
   writeJSON(target, config)
   return target
 }

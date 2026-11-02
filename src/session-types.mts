@@ -2,7 +2,7 @@
 export type Provider = 'codex' | 'agy' | 'claude'
 export type Transport = 'console' | 'stdio' | 'pty' | 'agentapi'
 export type SessionState = 'starting' | 'running' | 'idle' | 'awaiting_user' | 'settling' | 'closed' | 'unknown'
-export type RequestState = 'sending' | 'submitted' | 'unknown' | 'completed' | 'failed' | 'superseded'
+export type RequestState = 'queued' | 'sending' | 'submitted' | 'unknown' | 'completed' | 'failed' | 'superseded'
 export type ConnectionState = 'connected' | 'closed' | 'unreachable' | 'unverified'
 /** 관리형 세션 호스트의 생존. unverified 는 "확인하지 못함"이며 살아 있음도 죽음도 아니다. */
 export type HostLiveness = 'alive' | 'dead' | 'unverified'
@@ -71,8 +71,10 @@ export interface RequestRecord {
   conversationId?: string
   usage?: Usage | null
 }
-export interface DispatchOptions { to: string; prompt: string; cwd: string; from?: string; dialogueId?: string | null }
+export interface DispatchOptions { to: string; prompt: string; cwd: string; from?: string; dialogueId?: string | null; queueIfBusy?: boolean }
 export interface HookInput {
+  cwd?: string
+  transcript_path?: string
   conversationId?: string
   workspacePaths?: string[]
   transcriptPath?: string
@@ -87,7 +89,7 @@ export type LocalRequest = Pick<RequestRecord, 'id' | 'to' | 'prompt'> & Partial
 export type LocalMessage = { token?: string } & (
   { action: 'status' } | { action: 'result'; id: string } |
   { action: 'answer'; id: string | number; decision: string } |
-  { action: 'submit'; request: LocalRequest } |
+  { action: 'submit'; request: LocalRequest; queueIfBusy?: boolean } |
   { action: 'notice'; text: string } |
   { action: 'hook'; event: string; input: HookInput }
 )
@@ -97,7 +99,7 @@ export interface JobRecord {
   turnId?: string; rawUsage?: unknown; observed?: boolean; interrupted?: boolean
 }
 export interface TranscriptEntry { type?: string; source?: string; status?: string; content?: unknown }
-export interface ConsoleSnapshot { pid: number; startedAt: string; screen: string; ignored?: false }
+export interface ConsoleSnapshot { provider?: 'agy' | 'claude'; pid: number; startedAt: string; screen: string; cursorX?: number; cursorRow?: number; cursorAttributes?: number[]; ignored?: false }
 export interface DialogueTurn {
   index: number; to: string; from: string; requestId: string; state: RequestState
   usage?: Usage | null; conversationId?: string; error?: string; message?: string; done?: boolean

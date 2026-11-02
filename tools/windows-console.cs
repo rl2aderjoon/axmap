@@ -25,6 +25,7 @@ public static class AxConsole {
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateFile(string name,uint access,uint share,IntPtr sec,uint mode,uint flags,IntPtr template);
  [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetConsoleScreenBufferInfo(IntPtr h,out Info info);
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool ReadConsoleOutputCharacter(IntPtr h,[Out] char[] text,uint count,Coord at,out uint read);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool ReadConsoleOutputAttribute(IntPtr h,[Out] ushort[] attrs,uint count,Coord at,out uint read);
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool WriteConsoleInput(IntPtr h,Record[] input,uint count,out uint written);
  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
  static void Check(bool ok) { if(!ok) throw new Win32Exception(Marshal.GetLastWin32Error()); }
@@ -61,18 +62,19 @@ public static class AxConsole {
  }
  static Dictionary<string,object> Identity(int pid) {
   using(var proc=Process.GetProcessById(pid)) {
-   if(proc.ProcessName!="agy") throw new Exception("Target is not agy.exe");
-   return new Dictionary<string,object> { {"pid",pid}, {"startedAt",proc.StartTime.ToUniversalTime().ToString("o")} };
+   if(proc.ProcessName!="agy" && proc.ProcessName!="claude") throw new Exception("Target is not agy.exe or claude.exe");
+   return new Dictionary<string,object> { {"provider",proc.ProcessName}, {"pid",pid}, {"startedAt",proc.StartTime.ToUniversalTime().ToString("o")} };
   }
  }
  static bool Headless(string commandLine) {
-  return Regex.IsMatch(commandLine ?? "", @"--input-format|--print(?:\s|=|$)|(?:^|\s)-p(?:\s|$)");
+  return Regex.IsMatch(commandLine ?? "", @"--input-format|--print(?:\s|=|$)|(?:^|\s)-p(?:\s|=|$)");
  }
  public static int Main(string[] args) {
   Console.InputEncoding=new UTF8Encoding(false); Console.OutputEncoding=new UTF8Encoding(false);
   // AttachConsole replaces standard handles. Preserve the caller's pipe first.
   var reply=Console.Out;
   var json=new JavaScriptSerializer { MaxJsonLength=1024*1024 };
+  bool sending=false;
   try {
    int pid=int.Parse(args[0]); var action=args[1];
    if(pid<=0) throw new Exception("A positive PID is required");
@@ -82,35 +84,49 @@ public static class AxConsole {
     for(int i=0;i<12 && pid>0;i++) {
      using(var entry=new ManagementObject("Win32_Process.Handle='"+pid+"'")) {
       entry.Get();
-      if((string)entry["Name"]=="agy.exe") {
+      if((string)entry["Name"]=="agy.exe" || (string)entry["Name"]=="claude.exe") {
        var result=Headless((string)entry["CommandLine"]) ? new Dictionary<string,object> {{"ignored",true}} : Identity(pid);
        reply.WriteLine(json.Serialize(result)); return 0;
       }
       pid=Convert.ToInt32(entry["ParentProcessId"]);
      }
     }
-    throw new Exception("No interactive agy ancestor found");
+    throw new Exception("No interactive AI ancestor found");
    }
    var identity=Identity(pid);
    using(var entry=new ManagementObject("Win32_Process.Handle='"+pid+"'")) {
     entry.Get();
-    if(Headless((string)entry["CommandLine"])) throw new Exception("Target is not an interactive agy console");
+    if(Headless((string)entry["CommandLine"])) throw new Exception("Target is not an interactive AI console");
    }
    if(Get(payload,"startedAt")!=null && Get(payload,"startedAt")!=(string)identity["startedAt"]) throw new Exception("Process identity changed");
    FreeConsole(); Check(AttachConsole((uint)pid));
    var screen=Snapshot();
    if(action=="send") {
     if(Get(payload,"expectedScreen")!=screen) throw new Exception("Console changed before delivery; input was not sent");
+    var cursorHandle=Open("CONOUT$");
+    try {
+     Info current; Check(GetConsoleScreenBufferInfo(cursorHandle,out current));
+     object x,y;
+     if(payload.TryGetValue("expectedCursorX",out x) && x!=null && Convert.ToInt32(x)!=current.Cursor.X) throw new Exception("Console cursor changed before delivery");
+     if(payload.TryGetValue("expectedCursorRow",out y) && y!=null && Convert.ToInt32(y)!=current.Cursor.Y-current.Window.Top) throw new Exception("Console cursor changed before delivery");
+    } finally { CloseHandle(cursorHandle); }
     var text=Get(payload,"text");
     if(text==null || text.Length>65536) throw new Exception("Invalid console input");
     // Recheck identity immediately before mutating the console input queue.
     if((string)Identity(pid)["startedAt"]!=(string)identity["startedAt"]) throw new Exception("Process identity changed");
-    Send(text);
+    sending=true; Send(text);
    }
+   var output=Open("CONOUT$");
+   try {
+    Info info; Check(GetConsoleScreenBufferInfo(output,out info));
+    uint read; var attrs=new ushort[info.Size.X];
+    Check(ReadConsoleOutputAttribute(output,attrs,(uint)attrs.Length,new Coord { X=0,Y=info.Cursor.Y },out read));
+    identity["cursorX"]=info.Cursor.X; identity["cursorRow"]=info.Cursor.Y-info.Window.Top; identity["cursorAttributes"]=attrs;
+   } finally { CloseHandle(output); }
    FreeConsole(); identity["screen"]=screen;
    reply.WriteLine(json.Serialize(identity)); return 0;
   } catch(Exception e) {
-   FreeConsole(); reply.WriteLine(json.Serialize(new Dictionary<string,object> {{"error",e.Message}})); return 1;
+   FreeConsole(); reply.WriteLine(json.Serialize(new Dictionary<string,object> {{"error",e.Message},{"notDelivered",!sending}})); return 1;
   }
  }
 }

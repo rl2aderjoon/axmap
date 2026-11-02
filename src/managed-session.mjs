@@ -32,6 +32,23 @@ export async function startManagedSession({ provider, executable = provider, pre
         workspaces: [path.resolve(cwd)], repos: [repoKey(cwd)], state: 'starting', fullyIdle: false, hostPid: process.pid,
         registeredAt: new Date().toISOString(), usage: null, usageKnown: true, maxTokens };
     const jobs = new Map();
+    const queue = [];
+    const persistJob = (job) => writeJSON(path.join(bridgeHome(), 'jobs', `${job.id}.json`), job);
+    let draining = false;
+    const drain = () => {
+        if (closed || draining || pending || s.state !== 'idle' || !queue.length)
+            return;
+        draining = true;
+        const request = queue.shift();
+        jobs.delete(request.id);
+        void handle({ action: 'submit', token, request }).catch(e => {
+            const job = { id: request.id, to: id, state: 'failed', error: errorMessage(e), completedAt: new Date().toISOString() };
+            jobs.set(request.id, job);
+            persistJob(job);
+            emit({ event: 'result', request: job });
+        }).finally(() => { draining = false; if (!pending)
+            setImmediate(drain); });
+    };
     let attachedUsageOrigin = null;
     // Claude Code 는 실행마다 그 실행분만 준다. 다른 provider 처럼 누적값으로 다루려고 여기서 더한다.
     let claudeTotals = null;
@@ -73,12 +90,14 @@ export async function startManagedSession({ provider, executable = provider, pre
                 attachedUsageOrigin = usage;
         }
         s.usageKnown = usage !== null;
+        persistJob(pending);
         emit({ event: 'result', request: { ...pending } });
         pending = null;
         s.state = 'idle';
         s.fullyIdle = true;
         delete s.pendingApproval;
         save();
+        setImmediate(drain);
     };
     const shutdown = (reason) => {
         if (closed)
@@ -86,6 +105,11 @@ export async function startManagedSession({ provider, executable = provider, pre
         finish('unknown', undefined, reason);
         closed = true;
         clearTimeout(turnTimer);
+        for (const request of queue.splice(0)) {
+            const job = { id: request.id, to: id, state: 'failed', error: reason, completedAt: new Date().toISOString() };
+            jobs.set(request.id, job);
+            persistJob(job);
+        }
         for (const c of calls.values()) {
             clearTimeout(c.timer);
             c.reject(new Error(reason));
@@ -141,6 +165,19 @@ export async function startManagedSession({ provider, executable = provider, pre
         const refuse = (text) => Object.assign(new Error(text), { refused: true });
         if (jobs.has(message.request?.id))
             throw refuse('이미 접수한 요청 ID입니다. 다시 전송하지 않았습니다.');
+        const queuedRequest = message.request;
+        if (!uuid(queuedRequest?.id) || queuedRequest.to !== id || typeof queuedRequest.prompt !== 'string' || !queuedRequest.prompt.trim() || Buffer.byteLength(queuedRequest.prompt) > 32768)
+            throw refuse('요청 형식이 올바르지 않습니다.');
+        if (message.queueIfBusy && !closed && (pending || draining || queue.length || s.state === 'running' || s.state === 'awaiting_user')) {
+            if (queue.length >= 100)
+                throw refuse('명령 큐가 가득 찼습니다.');
+            const job = { id: queuedRequest.id, to: id, state: 'queued' };
+            persistJob(job);
+            jobs.set(job.id, job);
+            queue.push(queuedRequest);
+            emit({ event: 'queued', request: job });
+            return { accepted: true, queued: true, session: id, position: queue.length };
+        }
         if (closed || s.state !== 'idle' || pending)
             throw refuse('세션이 대기 중이 아닙니다. 요청을 전달하지 않았습니다.');
         if (existingThreadId) {
@@ -164,6 +201,7 @@ export async function startManagedSession({ provider, executable = provider, pre
         if (!uuid(request?.id) || request.to !== id || typeof request.prompt !== 'string' || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 32768)
             throw refuse('요청 형식이 올바르지 않습니다.');
         pending = { id: request.id, to: id, state: 'submitted', baseline: s.usage, baselineKnown: s.usageKnown && (!existingThreadId || !!s.usage), result: '' };
+        persistJob(pending);
         jobs.set(request.id, pending);
         s.state = 'running';
         s.fullyIdle = false;
@@ -302,6 +340,7 @@ export async function startManagedSession({ provider, executable = provider, pre
                     s.state = status?.type === 'active' ? 'running' : status?.type === 'idle' ? 'idle' : 'unknown';
                     s.fullyIdle = s.state === 'idle';
                     save();
+                    setImmediate(drain);
                 }
                 if (m.method === 'thread/tokenUsage/updated') {
                     if (pending)
@@ -355,6 +394,7 @@ export async function startManagedSession({ provider, executable = provider, pre
             s.state = initialThreadState === 'active' ? 'running' : 'idle';
             s.fullyIdle = s.state === 'idle';
             save();
+            setImmediate(drain);
             emit({ event: 'ready', conversationId: s.conversationId });
         }
         else if (provider === 'claude') {

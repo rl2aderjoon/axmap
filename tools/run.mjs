@@ -11,7 +11,7 @@ try {
   if (command === 'install-runtime') {
     console.log(JSON.stringify(installTerminalRuntime(args[0])))
   } else if (command === 'install-hooks') {
-    console.log(JSON.stringify({ hooks: [installTerminalHooks(), installTerminalHooks(undefined, 'codex')] }))
+    console.log(JSON.stringify({ hooks: (args[0] ? [args[0]] : ['agy', 'codex', 'claude']).map(provider => installTerminalHooks(undefined, provider)) }))
   } else if (command === 'rpc') {
     try { console.log(JSON.stringify(await sendTerminal(args[0], JSON.parse(fs.readFileSync(0, 'utf8'))))) }
     catch (e) {
@@ -24,8 +24,8 @@ try {
     const input = JSON.parse(fs.readFileSync(0, 'utf8'))
     if (process.env.AXMAP_TERMINAL_SESSION && process.env.AXMAP_TERMINAL_TOKEN) {
       await sendTerminal(process.env.AXMAP_TERMINAL_SESSION, { action: 'hook', event: args[0], input }, process.env.AXMAP_TERMINAL_TOKEN)
-    } else if (process.platform === 'win32' && input.conversationId) {
-      try { registerExternalHook(input, args[0]) }
+    } else if (process.platform === 'win32' && (input.conversationId || input.session_id)) {
+      try { registerExternalHook(input, args[0], args.includes('--provider') ? args[args.indexOf('--provider') + 1] : undefined) }
       catch (e) { console.error(`axMap 독립 콘솔: ${e.message}`) }
     }
     console.log('{}')

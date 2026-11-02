@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { withRepoLock } from './repolock.mjs'
 import { submitConsole, checkConsole, validateConsolePrompt, findConsoleTranscript, externalStatus } from './external-console.mjs'
@@ -82,6 +82,20 @@ function runAPI(session: SessionRecord, args: string[]): unknown {
   return null
 }
 function transcript(session: SessionRecord): TranscriptEntry[] {
+  if (session.provider === 'claude') {
+    const home = process.env.AXMAP_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+    const relative = session.transcript ? path.relative(path.join(home, 'projects'), session.transcript) : '..'
+    if (!session.transcript || relative.startsWith('..') || path.isAbsolute(relative) || path.basename(session.transcript) !== `${session.conversationId}.jsonl`) throw new Error('Claude transcript identity mismatch')
+    if (!fs.existsSync(session.transcript)) return []
+    return fs.readFileSync(session.transcript, 'utf8').split('\n').slice(0, -1).filter(Boolean).flatMap(line => {
+      const entry = JSON.parse(line) as { type?: string; sessionId?: string; message?: { content?: string | Array<{ type: string; text?: string }> } }
+      if (entry.sessionId && entry.sessionId !== session.conversationId) return []
+      const content = entry.message?.content
+      const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(b => b.type === 'text').map(b => b.text || '').join('\n') : ''
+      if (!text || !['user', 'assistant'].includes(entry.type || '')) return []
+      return [{ type: entry.type === 'user' ? 'USER_INPUT' : 'PLANNER_RESPONSE', source: 'MODEL', status: 'DONE', content: text }]
+    })
+  }
   const expected = path.join(agyHome(), 'brain', session.conversationId || session.id, '.system_generated', 'logs', 'transcript.jsonl')
   if (session.transcript !== expected) throw new Error('등록된 대화 기록 경로가 올바르지 않습니다.')
   const lines = fs.readFileSync(expected, 'utf8').split('\n')
@@ -164,7 +178,7 @@ export function sessions(cwd: string): PublicSession[] {
 function sessionFor(id: string, cwd: string): SessionRecord {
   const s = readJSON<SessionRecord>(file('sessions', id))
   if (!s.repos.includes(repoKey(cwd))) throw new Error('이 세션은 현재 작업 저장소에 등록되지 않았습니다.')
-  if (s.provider !== 'agy' && !['pty', 'stdio'].includes(s.transport || '')) throw new Error('아직 지원하지 않는 수신 세션입니다.')
+  if (s.provider !== 'agy' && !(s.provider === 'claude' && s.transport === 'console') && !['pty', 'stdio'].includes(s.transport || '')) throw new Error('아직 지원하지 않는 수신 세션입니다.')
   return s
 }
 
@@ -193,11 +207,21 @@ export function requestResult(id: string, cwd: string): RequestRecord {
   const target = file('requests', id)
   const request = readJSON<RequestRecord>(target)
   if (request.repo !== repoKey(cwd)) throw new Error('이 요청은 현재 작업 저장소의 요청이 아닙니다.')
-  if (!['submitted', 'unknown'].includes(request.state)) return request
+  if (!['queued', 'submitted', 'unknown'].includes(request.state)) return request
   let s = sessionFor(request.to, cwd)
+  if (request.state === 'queued' && s.transport === 'console') return request
   if (['pty', 'stdio'].includes(s.transport || '')) {
     try { Object.assign(request, terminalRPC(s.id, { action: 'result', id })) }
-    catch (e) { request.state = 'unknown'; request.error = errorMessage(e) }
+    catch (e) {
+      const saved = path.join(bridgeHome(), 'jobs', `${id}.json`)
+      // A normal host exit persists outcomes before closing the pipe. Never replay
+      // a queued job after a crash or mistake an unexecuted job for completion.
+      if (s.transport === 'stdio' && fs.existsSync(saved)) {
+        const job = readJSON<Pick<RequestRecord, 'id' | 'to' | 'state'>>(saved)
+        if (job.id === id && job.to === s.id && ['completed', 'failed', 'unknown'].includes(job.state)) Object.assign(request, job)
+        else { request.state = 'unknown'; request.error = errorMessage(e) }
+      } else { request.state = 'unknown'; request.error = errorMessage(e) }
+    }
     writeJSON(target, request)
     return request
   }
@@ -237,7 +261,7 @@ export async function waitForRequest(id: string, cwd: string, timeoutMs = 30000)
   const deadline = performance.now() + timeoutMs
   for (;;) {
     const result = requestResult(id, cwd)
-    if (result.state !== 'submitted' || performance.now() >= deadline) return result
+    if (!['queued', 'sending', 'submitted'].includes(result.state) || performance.now() >= deadline) return result
     await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(0, deadline - performance.now()))))
   }
 }
@@ -247,7 +271,7 @@ export function sessionLeasePath(id: string): string {
   return path.join(bridgeHome(), 'dialogues', `session-${id}.lock`)
 }
 
-export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = null }: DispatchOptions): RequestRecord {
+export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = null, queueIfBusy = false }: DispatchOptions): RequestRecord {
   // 보내기 시작 전에 난 오류(이전 요청 미확정, 대기 미확인 등)는 확실히 전달되지 않은 것이다.
   // 받은 편지함이 이를 "전달 불명"과 구별해야 쪽지를 다시 대기열로 돌릴 수 있다.
   let sending = false
@@ -258,13 +282,29 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
   if (fs.existsSync(lease) && readJSON<{ dialogueId: string }>(lease).dialogueId !== dialogueId) throw new Error('이 세션은 자동 대화가 사용 중입니다. 해당 대화가 끝난 뒤 요청하세요.')
   const dir = path.join(bridgeHome(), 'requests')
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  if (queueIfBusy && s.provider === 'claude' && s.transport === 'console') {
+    validateConsolePrompt(prompt, from)
+    if (s.state === 'closed') throw new Error('Claude terminal is closed')
+    const request = withRepoLock(path.join(dir, `${to}.lock`), () => {
+      const pending = fs.readdirSync(dir).filter(n => n.endsWith('.json')).map(n => readJSON<RequestRecord>(path.join(dir, n)))
+        .filter(r => r.to === to && r.state === 'queued')
+      if (pending.length >= 100) throw new Error('Claude command queue is full')
+      const request: RequestRecord = { id: randomUUID(), to, from, repo: repoKey(cwd), prompt, createdAt: new Date().toISOString(), baseline: null, state: 'queued' }
+      writeJSON(file('requests', request.id), request)
+      return request
+    })
+    const worker = spawn(process.execPath, [path.join(ROOT, 'tools', 'console-queue.mjs'), to, cwd], { detached: true, windowsHide: true, stdio: 'ignore' })
+    worker.on('error', () => {}); worker.unref()
+    return request
+  }
   return withRepoLock(path.join(dir, `${to}.lock`), () => {
     if (fs.existsSync(lease) && readJSON<{ dialogueId: string }>(lease).dialogueId !== dialogueId) throw new Error('이 세션은 자동 대화가 사용 중입니다.')
     for (const n of fs.readdirSync(dir).filter(n => n.endsWith('.json'))) {
       const previous = readJSON<RequestRecord>(path.join(dir, n))
-      if (previous.to !== to || !['sending', 'submitted', 'unknown'].includes(previous.state)) continue
+      if (previous.to !== to || !['queued', 'sending', 'submitted', 'unknown'].includes(previous.state)) continue
       const latest = previous.state === 'sending' ? previous : requestResult(previous.id, cwd)
-      if (['sending', 'submitted', 'unknown'].includes(latest.state)) throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`)
+      if (queueIfBusy && s.transport === 'stdio' && ['queued', 'submitted'].includes(latest.state)) continue
+      if (['queued', 'sending', 'submitted', 'unknown'].includes(latest.state)) throw new Error(`이 세션의 이전 요청이 아직 확정되지 않았습니다: ${latest.id}`)
     }
     // No fallback to `agy -p` or --conversation: both would start a separate process.
     let consolePreflight
@@ -280,9 +320,9 @@ export function dispatchRequest({ to, prompt, cwd, from = 'axmap', dialogueId = 
     sending = true
     try {
       request.receipt = s.transport === 'console' ? submitConsole(s, request, consolePreflight) : ['pty', 'stdio'].includes(s.transport || '')
-        ? terminalRPC(to, { action: 'submit', request })
+        ? terminalRPC(to, { action: 'submit', request, ...(queueIfBusy && s.transport === 'stdio' ? { queueIfBusy: true } : {}) })
         : runAPI(s, ['send-message', to, `[axMap request ${request.id}]\n요청자: ${from}\n${prompt}`])
-      request.state = 'submitted'
+      request.state = (request.receipt as { queued?: boolean })?.queued ? 'queued' : 'submitted'
     } catch (e) {
       if (notDelivered(e)) {
         // 로컬 파이프에 연결조차 못 했다(ENOENT·ECONNREFUSED). 한 바이트도 보내지
@@ -371,4 +411,58 @@ export function installHooks({ executable, home = os.homedir() }: { executable: 
   writeJSON(target, config)
   return { hooks: target, backup: original === null ? null : backup,
     note: '기존 실행 중인 CLI가 새 훅을 읽지 않으면 같은 대화를 재개해 한 번 다시 열어야 합니다. Remote Control은 필요 없습니다.' }
+}
+
+/** One local worker per ordinary Claude terminal; no provider is launched. */
+export function runConsoleQueue(to: string, cwd: string) {
+  const dir = path.join(bridgeHome(), 'requests')
+  const runnerLock = path.join(dir, `${to}.runner.lock`)
+  if (fs.existsSync(runnerLock)) {
+    const owner = readJSON<{ pid: number }>(runnerLock)
+    try { process.kill(owner.pid, 0) } catch (e) {
+      if (errorCode(e) === 'ESRCH') fs.unlinkSync(runnerLock)
+    }
+  }
+  try { withRepoLock(runnerLock, () => {
+    for (;;) {
+      const records: RequestRecord[] = withRepoLock(path.join(dir, `${to}.lock`), () => fs.readdirSync(dir)
+        .filter(n => n.endsWith('.json')).map(n => readJSON<RequestRecord>(path.join(dir, n)))
+        .filter(r => r.to === to).sort((a, b) => a.createdAt.localeCompare(b.createdAt)))
+      const queued = records.filter(r => r.state === 'queued')
+      if (!queued.length) return
+      let waiting = false
+      for (const r of records.filter(r => ['sending', 'submitted', 'unknown'].includes(r.state))) {
+        const latest = r.state === 'sending' ? r : requestResult(r.id, cwd)
+        if (['unknown', 'sending'].includes(latest.state)) return
+        if (latest.state === 'submitted') waiting = true
+      }
+      const s = sessionFor(to, cwd)
+      if (s.pid) {
+        try { process.kill(s.pid, 0) } catch (e) {
+          if (errorCode(e) === 'ESRCH') {
+            for (const r of queued) writeJSON(file('requests', r.id), { ...r, state: 'failed', error: 'Claude process exited before execution' })
+            return
+          }
+        }
+      }
+      if (s.state === 'closed') {
+        for (const r of queued) writeJSON(file('requests', r.id), { ...r, state: 'failed', error: 'Claude terminal closed before execution' })
+        return
+      }
+      let live
+      try { live = checkConsole(s) } catch { waiting = true }
+      if (waiting || !live) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200); continue }
+      withRepoLock(path.join(dir, `${to}.lock`), () => {
+        const r = readJSON<RequestRecord>(file('requests', queued[0]!.id))
+        if (r.state !== 'queued') return
+        r.baseline = transcript(s).length; r.state = 'sending'; writeJSON(file('requests', r.id), r)
+        try { r.receipt = submitConsole(s, r, live); r.state = 'submitted' }
+        catch (e) { r.state = notDelivered(e) ? 'queued' : 'unknown'; r.error = errorMessage(e) }
+        writeJSON(file('requests', r.id), r)
+      })
+    }
+  }, 1000) } catch (e) {
+    // Another worker won the runner lease. It owns draining; never replay here.
+    if (!fs.existsSync(runnerLock)) throw e
+  }
 }

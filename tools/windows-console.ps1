@@ -10,10 +10,10 @@ if ($Action -eq 'ancestor') {
  for ($i = 0; $i -lt 12 -and $TargetPid -gt 0; $i++) {
   $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$TargetPid"
   if (!$entry) { break }
-  if ($entry.Name -eq 'agy.exe') {
+  if ($entry.Name -in @('agy.exe','claude.exe')) {
    if ($entry.CommandLine -match '--input-format|--print(?:\s|=|$)|(?:^|\s)-p(?:\s|$)') { $reply.WriteLine('{"ignored":true}'); exit 0 }
    $proc = Get-Process -Id $TargetPid
-   $reply.WriteLine((@{ pid=$TargetPid; startedAt=$proc.StartTime.ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress))
+   $reply.WriteLine((@{ provider=($entry.Name -replace '\.exe$',''); pid=$TargetPid; startedAt=$proc.StartTime.ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress))
    exit 0
   }
   $TargetPid = $entry.ParentProcessId
@@ -56,6 +56,9 @@ public static class AxConsole {
    return text.ToString();
   } finally { CloseHandle(h); }
  }
+ public static int[] Cursor() {
+  var h=Open("CONOUT$"); try { Info info; Check(GetConsoleScreenBufferInfo(h,out info)); return new int[] {info.Cursor.X,info.Cursor.Y-info.Window.Top}; } finally { CloseHandle(h); }
+ }
  public static void Send(string text) {
   var h=Open("CONIN$"); try {
    var records=new Record[text.Length*2];
@@ -69,9 +72,10 @@ public static class AxConsole {
  }
 }
 '@
+$sending = $false
 try {
  $proc = Get-Process -Id $TargetPid
- if ($proc.ProcessName -ne 'agy') { throw 'Target is not agy.exe' }
+ if ($proc.ProcessName -notin @('agy','claude')) { throw 'Target is not agy.exe or claude.exe' }
  $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId=$TargetPid").CommandLine
  if ($commandLine -match '--input-format|--print(?:\s|=|$)|(?:^|\s)-p(?:\s|$)') { throw 'Target is not an interactive agy console' }
  if ($payload.startedAt -and $proc.StartTime.ToUniversalTime().ToString('o') -ne $payload.startedAt) { throw 'Process identity changed' }
@@ -79,13 +83,18 @@ try {
  $screen = [AxConsole]::Snapshot()
  if ($Action -eq 'send') {
   if ($payload.expectedScreen -cne $screen) { throw 'Console changed before delivery; input was not sent' }
+  $cursor = [AxConsole]::Cursor()
+  if ($null -ne $payload.expectedCursorX -and $payload.expectedCursorX -ne $cursor[0]) { throw 'Console cursor changed before delivery' }
+  if ($null -ne $payload.expectedCursorRow -and $payload.expectedCursorRow -ne $cursor[1]) { throw 'Console cursor changed before delivery' }
+  $sending = $true
   [AxConsole]::Send($payload.text)
  }
- $result = @{ screen = $screen; startedAt = $proc.StartTime.ToUniversalTime().ToString('o'); pid = $TargetPid }
+ $cursor = [AxConsole]::Cursor()
+ $result = @{ provider=$proc.ProcessName; cursorX=$cursor[0]; cursorRow=$cursor[1]; screen = $screen; startedAt = $proc.StartTime.ToUniversalTime().ToString('o'); pid = $TargetPid }
  [AxConsole]::FreeConsole() | Out-Null
  $reply.WriteLine(($result | ConvertTo-Json -Compress))
 } catch {
  [AxConsole]::FreeConsole() | Out-Null
- $reply.WriteLine((@{ error = $_.Exception.Message } | ConvertTo-Json -Compress))
+ $reply.WriteLine((@{ error = $_.Exception.Message; notDelivered = !$sending } | ConvertTo-Json -Compress))
  exit 1
 }

@@ -13,6 +13,74 @@ import { sessionStatus } from '../src/session-status.mjs'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+test('ordinary Claude console auto-registers, preserves drafts, drains FIFO, and returns same-session results', { skip: process.platform !== 'win32', timeout: 45000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap-plain-claude-'))
+  const saved = { AXMAP_STATE_DIR: process.env.AXMAP_STATE_DIR, AXMAP_CLAUDE_HOME: process.env.AXMAP_CLAUDE_HOME }
+  process.env.AXMAP_STATE_DIR = path.join(dir, 'state')
+  process.env.AXMAP_CLAUDE_HOME = path.join(dir, 'claude-home')
+  spawnSync('git', ['init', '-q'], { cwd: dir })
+  const binary = path.join(dir, 'claude.exe')
+  try { fs.linkSync(process.execPath, binary) } catch { fs.copyFileSync(process.execPath, binary) }
+  const fixture = path.join(dir, 'ordinary.cjs')
+  fs.writeFileSync(fixture, `
+    const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+    const cid='11111111-2222-4333-8444-555555555555';
+    const log=path.join(process.env.AXMAP_CLAUDE_HOME,'projects','repo',cid+'.jsonl');
+    fs.mkdirSync(path.dirname(log),{recursive:true});fs.writeFileSync(log,'');
+    const hook=event=>cp.spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(path.join(ROOT, 'tools/run.mjs'))},'hook',event,'--provider','claude'],{
+      input:JSON.stringify({session_id:cid,transcript_path:log,cwd:process.cwd()}),encoding:'utf8'});
+    hook('SessionStart');const rule='─'.repeat(60);let pending='',remembered='';
+    const draw=()=>process.stdout.write('\\x1b[2J\\x1b[HREADY\\r\\n'+rule+'\\r\\n> '+pending+'\\r\\n'+rule+'\\r\\n? for shortcuts\\r\\n\\x1b[3;'+(pending.length+3)+'H');
+    process.stdin.setRawMode(true);process.stdin.resume();draw();
+    process.stdin.on('data',data=>{
+      pending+=data.toString();if(pending.includes('\\x15')){pending='';draw();return;}
+      if(!pending.includes('\\r')){draw();return;}
+      const prompt=pending.slice(0,pending.indexOf('\\r')).replace(/\\x1b\\[(?:200|201)~/g,'');pending='';
+      if(prompt==='EXIT'){hook('SessionEnd');process.exit(0);}
+      hook('UserPromptSubmit');fs.appendFileSync(log,JSON.stringify({type:'user',sessionId:cid,message:{content:prompt}})+'\\n');
+      process.stdout.write('\\x1b[2J\\x1b[HBUSY esc to interrupt');
+      setTimeout(()=>{if(prompt.includes('remember 849'))remembered='849';
+        fs.appendFileSync(log,JSON.stringify({type:'assistant',sessionId:cid,message:{content:[{type:'text',text:prompt.includes('recall')?remembered:'ok'}]}})+'\\n');
+        hook('Stop');draw();},250);
+    });
+  `)
+  const hostScript = path.join(dir, 'host.mjs')
+  fs.writeFileSync(hostScript, `
+    import {createRequire} from 'node:module';import readline from 'node:readline';
+    const {spawn}=createRequire(${JSON.stringify(path.join(ROOT,'package.json'))})('node-pty');
+    const env={...process.env};delete env.AXMAP_TERMINAL_SESSION;delete env.AXMAP_TERMINAL_TOKEN;
+    const term=spawn(${JSON.stringify(binary)},[${JSON.stringify(fixture)}],{cwd:${JSON.stringify(dir)},env,cols:100,rows:30,useConpty:true,useConptyDll:false});
+    console.log(JSON.stringify({pid:term.pid}));term.onData(d=>console.log(JSON.stringify({data:d})));
+    const rl=readline.createInterface({input:process.stdin});rl.on('line',l=>term.write(JSON.parse(l).input));
+    term.onExit(e=>{try{term.kill()}catch{};rl.close();process.exit(e.exitCode||0)});
+  `)
+  const host = spawn(process.execPath,[hostScript],{cwd:dir,env:process.env,windowsHide:true})
+  const exited = new Promise(resolve=>host.once('exit',resolve))
+  let buffer='',ready=false,errors=''
+  host.stdout.on('data',chunk=>{buffer+=chunk;for(let end;(end=buffer.indexOf('\n'))>=0;){const m=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);if(m.data?.includes('READY'))ready=true}})
+  host.stderr.on('data',chunk=>{errors+=chunk})
+  try {
+    await until(()=>ready)
+    const session=sessions(dir).find(s=>s.provider==='claude'&&s.transport==='console')
+    assert.ok(session,errors)
+    host.stdin.write(JSON.stringify({input:'unfinished draft'})+'\n');await wait(150)
+    const first=dispatchRequest({to:session.id,prompt:'remember 849',cwd:dir,queueIfBusy:true})
+    assert.equal(first.state,'queued')
+    await wait(500)
+    assert.equal(requestResult(first.id,dir).state,'queued','draft must not be overwritten')
+    const second=dispatchRequest({to:session.id,prompt:'recall',cwd:dir,queueIfBusy:true})
+    host.stdin.write(JSON.stringify({input:'\x15'})+'\n')
+    const result=await until(()=>{const r=requestResult(second.id,dir);return r.state==='completed'&&r})
+    assert.equal(result.result,'849')
+    assert.equal(requestResult(first.id,dir).state,'completed')
+    assert.equal(sessions(dir).find(s=>s.id===session.id).conversationId,'11111111-2222-4333-8444-555555555555')
+  } finally {
+    if(host.exitCode===null){host.stdin.write(JSON.stringify({input:'\x15EXIT\r'})+'\n');await wait(100);host.stdin.write(JSON.stringify({input:'EXIT\r'})+'\n');const timer=setTimeout(()=>host.kill(),5000);await exited;clearTimeout(timer)}
+    for(const[k,v]of Object.entries(saved)){if(v===undefined)delete process.env[k];else process.env[k]=v}
+    fs.rmSync(dir,{recursive:true,force:true,maxRetries:20,retryDelay:100})
+  }
+})
 async function until(fn) {
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) { const result = await fn(); if (result) return result; await wait(50) }

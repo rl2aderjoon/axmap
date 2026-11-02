@@ -13,8 +13,8 @@ export interface MonitorSnapshot {
   dialogues: DialogueRecord[]; claims: MonitorClaim[]; events: MonitorEvent[]; issues: string[]
 }
 const uuidFile = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.json$/i
-const pending = new Set(['sending', 'submitted', 'unknown'])
-const requestLabels: Record<string, string> = { sending: '전달 중', submitted: '응답 대기', completed: '완료', failed: '실패', unknown: '전송 확인 필요', superseded: '다른 입력으로 대체됨' }
+const pending = new Set(['queued', 'sending', 'submitted', 'unknown'])
+const requestLabels: Record<string, string> = { queued: '작업 큐 대기', sending: '전달 중', submitted: '응답 대기', completed: '완료', failed: '실패', unknown: '전송 확인 필요', superseded: '다른 입력으로 대체됨' }
 const sessionLabels: Record<string, string> = { starting: '시작 중', running: '작업 중', idle: '대기', awaiting_user: '사용자 승인 필요', settling: '대기 전환 중', closed: '종료', unknown: '상태 미확인' }
 const dialogueLabels: Record<string, string> = { queued: '접수', running: '중계 중', stopping: '중단 대기', completed: '완료', failed: '실패', cancelled: '중단', token_limit: '토큰 한도', unknown: '확인 필요', usage_unavailable: '사용량 미확인', message_limit: '메시지 한도', invalid_response: '응답 형식 확인 필요', turn_limit: '횟수 한도' }
 
@@ -64,7 +64,7 @@ export function createMonitor(cwd: string, options: {
     const refreshed = new Set<string>()
     for (let index = 0; index < requests.length && refreshed.size < 4; index++) {
       const request = requests[index]!
-      if (!['submitted', 'unknown'].includes(request.state) || refreshed.has(request.to)) continue
+      if (!['queued', 'submitted', 'unknown'].includes(request.state) || refreshed.has(request.to)) continue
       refreshed.add(request.to)
       try { requests[index] = resolve(request.id, workspace) }
       catch (e) { issues.push(`요청 ${request.id.slice(0, 8)}: ${errorMessage(e)}`) }

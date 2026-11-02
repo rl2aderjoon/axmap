@@ -508,7 +508,7 @@ const TOOLS = [
   },
   {
     name: 'ax_dispatch',
-    description: '명시적으로 상대의 실행 턴이 필요한 작업용 저수준 전달이다. 일반 진행·완료·계약 확인 알림에는 새 턴 없는 ax_message를 사용하고 수신자가 작업 경계에서 ax_mailbox로 묶음 회수한다. 기존 맥락을 유지하며 새 모델 프로세스를 만들지 않는다. submitted는 완료가 아니다. unknown이면 자동 재시도하지 말고 ax_result로 확인한다. 작업 중인 세션을 강제 중단하지 않는다.',
+    description: '명시적으로 상대의 실행 턴이 필요한 작업용 전달이다. 관리형 Claude Code·Codex·agy와 Windows 일반 Claude Code(console)는 대기 중 실행하고 작업·입력·승인 대기 중이면 FIFO 큐에 접수해 idle에서 자동 실행한다. 기존 맥락과 프로세스를 유지한다. queued/submitted는 완료가 아니며 ax_result로 확인한다. unknown은 재전송하지 않는다. 일반 진행 알림에는 새 턴 없는 ax_message를 사용한다. 작업 중인 세션을 강제 중단하지 않는다.',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },

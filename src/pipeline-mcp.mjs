@@ -2,8 +2,8 @@
 /** Portable MCP observation: structured snapshots, plain text and progress share one source. */
 import { createMonitor, terminalText, fitTerminal } from './monitor.mjs';
 import { dispatchRequest, requestResult } from './bridge.mjs';
-const labels = { sending: '전달 중', submitted: '응답 대기', completed: '완료 확인', unknown: '전송 확인 필요', failed: '실패', superseded: '다른 입력으로 대체됨' };
-const pending = new Set(['sending', 'submitted', 'unknown']);
+const labels = { queued: '작업 큐 대기', sending: '전달 중', submitted: '응답 대기', completed: '완료 확인', unknown: '전송 확인 필요', failed: '실패', superseded: '다른 입력으로 대체됨' };
+const pending = new Set(['queued', 'sending', 'submitted', 'unknown']);
 export function pipelineView(snapshot) {
     return {
         schemaVersion: 1, type: 'pipeline', cwd: snapshot.cwd, checkedAt: snapshot.checkedAt,
@@ -81,7 +81,7 @@ export async function runPipelineOperation(action, args, emit = () => { }, cance
                 throw new Error('to와 prompt 문자열이 필요합니다.');
             if (progress)
                 emit('axMap · 대상 세션과 입력 상태 확인');
-            request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap' });
+            request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap', queueIfBusy: true });
         }
         else {
             if (typeof args.id !== 'string')
@@ -97,7 +97,7 @@ export async function runPipelineOperation(action, args, emit = () => { }, cance
                 lastMessage = message;
                 lastAt = Date.now();
             }
-            if (cancelled() || request.state !== 'submitted' || Date.now() >= deadline)
+            if (cancelled() || !['queued', 'sending', 'submitted'].includes(request.state) || Date.now() >= deadline)
                 break;
             await delay(Math.min(200, Math.max(0, deadline - Date.now())));
             if (cancelled())

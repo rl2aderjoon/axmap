@@ -25,19 +25,19 @@ export function consoleCall(pid, action = 'snapshot', payload = {}) {
     }
     catch { /* report the underlying failure */ }
     if (r.error || r.status !== 0 || data?.error || !data)
-        throw new Error(data?.error || r.error?.message || r.stderr?.trim() || '기존 콘솔 연결 실패');
+        throw Object.assign(new Error(data?.error || r.error?.message || r.stderr?.trim() || '기존 콘솔 연결 실패'), { notDelivered: !r.error && data?.notDelivered === true });
     if (action === 'ancestor' && data.ignored)
         return { ignored: true };
     if (typeof data.pid !== 'number' || typeof data.startedAt !== 'string' || (action !== 'ancestor' && typeof data.screen !== 'string'))
         throw new Error('기존 콘솔 응답 형식이 올바르지 않습니다.');
     return data;
 }
-function identityID({ pid, startedAt }) {
-    const hex = createHash('sha256').update(`agy-console:${pid}:${startedAt}`).digest('hex');
+function identityID({ pid, startedAt, provider = 'agy' }) {
+    const hex = createHash('sha256').update(`${provider}-console:${pid}:${startedAt}`).digest('hex');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 const target = (id) => path.join(bridgeHome(), 'sessions', `${id}.json`);
-export function consoleIdle(screen) {
+export function consoleIdle(screen, live) {
     // Use the last input box only. Old answers may contain quoted prompt boxes.
     const borders = [...screen.matchAll(/^[─━]{10,}\r?$/gm)];
     if (borders.length < 2)
@@ -47,7 +47,15 @@ export function consoleIdle(screen) {
         return false;
     const input = screen.slice(top.index + top[0].length, bottom.index).trim();
     const footer = screen.slice(bottom.index + bottom[0].length);
-    return input === '>' && /\? for shortcuts/.test(footer) && !/esc to cancel/i.test(footer);
+    const empty = /^[>❯]$/.test(input);
+    // Claude paints a suggestion after the cursor in an otherwise empty editor.
+    // Require the cursor to remain at that editor's start, never just match text.
+    const placeholder = live?.provider === 'claude' && live.cursorX === 2 &&
+        /^[>❯]\s+Try "[^"\r\n]+"$/.test(input) &&
+        live.cursorRow === screen.slice(0, top.index + top[0].length).split('\n').length;
+    const claudeEditor = live?.provider === 'claude' && live.cursorX === 2 &&
+        live.cursorRow === screen.slice(0, top.index + top[0].length).split('\n').length;
+    return (empty || placeholder) && (live?.provider === 'claude' ? claudeEditor : /\? for shortcuts/.test(footer)) && !/esc to (cancel|interrupt)/i.test(footer);
 }
 export function attachConsole({ pid, cwd }) {
     const live = consoleCall(pid);
@@ -56,19 +64,38 @@ export function attachConsole({ pid, cwd }) {
     const repo = repoKey(cwd);
     if (previous.repos && !previous.repos.includes(repo))
         throw new Error('이 프로세스는 다른 저장소에 등록되어 있습니다.');
-    const idle = consoleIdle(live.screen);
-    const s = { ...previous, id, provider: 'agy', transport: 'console', pid, startedAt: live.startedAt,
+    const idle = consoleIdle(live.screen, live);
+    const s = { ...previous, id, provider: live.provider || 'agy', transport: 'console', pid, startedAt: live.startedAt,
         workspaces: previous.workspaces || [path.resolve(cwd)], repos: previous.repos || [repo],
         state: idle ? 'idle' : 'unknown', fullyIdle: idle, registeredAt: new Date().toISOString(), event: previous.event || 'attach' };
     writeJSON(target(id), s);
     return { id, provider: s.provider, transport: s.transport, pid, state: s.state, workspaces: s.workspaces };
 }
-export function registerExternalHook(input, event) {
-    if (!['SessionStart', 'PreInvocation', 'Stop'].includes(event))
+export function registerExternalHook(input, event, provider = 'agy') {
+    if (!['SessionStart', 'PreInvocation', 'UserPromptSubmit', 'Stop', 'SessionEnd'].includes(event))
         throw new Error('지원하지 않는 훅 이벤트입니다.');
     const identity = consoleCall(process.pid, 'ancestor');
     if (identity.ignored)
         return {};
+    if (identity.provider && identity.provider !== provider)
+        return {};
+    if (provider === 'claude') {
+        const conversationId = input.session_id;
+        const log = input.transcript_path;
+        const home = process.env.AXMAP_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+        const relative = typeof log === 'string' ? path.relative(path.join(home, 'projects'), path.resolve(log)) : '..';
+        if (!conversationId || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(conversationId) ||
+            !log || relative.startsWith('..') || path.isAbsolute(relative) || path.basename(log) !== `${conversationId}.jsonl` ||
+            !input.cwd || !path.isAbsolute(input.cwd))
+            throw new Error('Claude 훅의 대화 기록·작업 폴더 신원이 올바르지 않습니다.');
+        const id = identityID(identity);
+        const previous = fs.existsSync(target(id)) ? readJSON(target(id)) : {};
+        const state = event === 'SessionEnd' ? 'closed' : event === 'Stop' || event === 'SessionStart' ? 'settling' : 'running';
+        writeJSON(target(id), { ...previous, ...identity, id, provider: 'claude', transport: 'console', conversationId,
+            transcript: path.resolve(log), workspaces: [path.resolve(input.cwd)], repos: [repoKey(input.cwd)],
+            state, fullyIdle: false, event, registeredAt: new Date().toISOString() });
+        return { id };
+    }
     const id = identityID(identity);
     const previous = fs.existsSync(target(id)) ? readJSON(target(id)) : {};
     const workspaces = input.workspacePaths || previous.workspaces;
@@ -89,7 +116,8 @@ export function registerExternalHook(input, event) {
 export function externalStatus(session) {
     const s = readJSON(target(session.id));
     const live = consoleCall(consolePID(s), 'snapshot', { startedAt: s.startedAt });
-    const state = consoleIdle(live.screen) ? 'idle' : 'unknown';
+    const eligible = s.provider !== 'claude' || ['SessionStart', 'Stop'].includes(s.event || '');
+    const state = s.state === 'closed' ? 'closed' : eligible && consoleIdle(live.screen, live) ? 'idle' : 'unknown';
     writeJSON(target(s.id), { ...readJSON(target(s.id)), state, fullyIdle: state === 'idle' });
     return { id: s.id, state };
 }
@@ -100,7 +128,9 @@ function consolePID(s) {
 }
 export function checkConsole(s) {
     const live = consoleCall(consolePID(s), 'snapshot', { startedAt: s.startedAt });
-    if (!consoleIdle(live.screen))
+    if (s.provider === 'claude' && !['SessionStart', 'Stop'].includes(s.event || ''))
+        throw new Error('Claude가 실행·승인 대기 중입니다.');
+    if (!consoleIdle(live.screen, live))
         throw new Error('상대 콘솔이 빈 입력창에서 대기 중이지 않습니다. 입력을 보내지 않았습니다.');
     return live;
 }
@@ -110,6 +140,8 @@ export function validateConsolePrompt(prompt, from) {
 }
 export function findConsoleTranscript(s, request) {
     if (s.transcript)
+        return s;
+    if (s.provider === 'claude')
         return s;
     const brain = path.join(process.env.AXMAP_AGY_HOME || path.join(os.homedir(), '.gemini', 'antigravity-cli'), 'brain');
     if (!fs.existsSync(brain))
@@ -153,7 +185,8 @@ export function submitConsole(s, request, preflight) {
     // Bracketed paste preserves multiline prompts and prevents embedded Enter keys
     // from becoming separate submissions. Only the final CR submits the message.
     const text = `\x1b[200~[axMap request ${request.id}]\n요청자: ${request.from}\n${request.prompt.replace(/\r\n/g, '\n')}\x1b[201~\r`;
-    consoleCall(consolePID(s), 'send', { startedAt: s.startedAt, expectedScreen: live.screen, text });
+    consoleCall(consolePID(s), 'send', { startedAt: s.startedAt, expectedScreen: live.screen,
+        expectedCursorX: live.cursorX, expectedCursorRow: live.cursorRow, text });
     writeJSON(target(s.id), { ...readJSON(target(s.id)), state: 'running', fullyIdle: false });
     return { accepted: true, pid: s.pid };
 }

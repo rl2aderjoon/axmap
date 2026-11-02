@@ -31,6 +31,22 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.10.0
+
+<sub>November 3, 2026</sub>
+
+**Connect ordinary Windows Claude Code terminals and queue execution requests until the recipient is ready.**
+
+- After `axmap setup`, launch `claude` normally in a Git repository. Hooks register the original process and conversation; `ax_dispatch` / `ax_result` deliver requests and collect replies without starting another model process.
+- Managed Claude Code, Codex and agy sessions, plus ordinary Windows Claude consoles, accept FIFO execution queues. Input drafts and approval screens are preserved. Waiting and queue handling make no model calls; generating a response still uses provider tokens.
+- `bridge serve claude` supports persistent stream-json conversations. Automatic dialogue accepts fenced JSON responses and provides execution timeouts and `--done-by` termination control.
+- Requests that were not delivered remain distinct from uncertain delivery. Unknown requests are never automatically replayed. Wait operations now follow the queued-to-sending handoff through completion.
+
+Validated with real Claude Code terminals and Codex request/reply exchanges on Windows. Ordinary console attachment is Windows-only; token-budgeted `ax_chat` continues to require managed stdio sessions. Tool approvals remain under the host's control.
+[Connection guide →](docs/SESSION-BRIDGE.md)
+
+---
+
 ### 1.9.0
 
 <sub>October 29, 2026</sub>

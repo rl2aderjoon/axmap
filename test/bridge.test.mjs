@@ -37,6 +37,18 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true })
 })
 
+test('waiting continues through the queued-to-sending handoff without resubmitting', async () => {
+  const request = { id: randomUUID(), to: id, repo: repoKey(repo), prompt: 'fixture', state: 'sending' }
+  const target = path.join(process.env.AXMAP_STATE_DIR, 'bridge', 'requests', `${request.id}.json`)
+  writeJSON(target, request)
+  const timer = setTimeout(() => writeJSON(target, { ...request, state: 'completed', result: 'done' }), 150)
+  try {
+    const result = await waitForRequest(request.id, repo, 1000)
+    assert.equal(result.state, 'completed')
+    assert.equal(result.result, 'done')
+  } finally { clearTimeout(timer) }
+})
+
 test('hook registration is repo scoped; connection details stay out of session listings', () => {
   hook('Stop')
   const listed = sessions(repo)

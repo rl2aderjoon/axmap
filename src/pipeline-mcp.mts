@@ -10,8 +10,8 @@ export interface PipelineOutput {
   isError: boolean
 }
 export type PipelineEmit = (message: string) => void
-const labels: Record<string, string> = { sending: '전달 중', submitted: '응답 대기', completed: '완료 확인', unknown: '전송 확인 필요', failed: '실패', superseded: '다른 입력으로 대체됨' }
-const pending = new Set(['sending', 'submitted', 'unknown'])
+const labels: Record<string, string> = { queued: '작업 큐 대기', sending: '전달 중', submitted: '응답 대기', completed: '완료 확인', unknown: '전송 확인 필요', failed: '실패', superseded: '다른 입력으로 대체됨' }
+const pending = new Set(['queued', 'sending', 'submitted', 'unknown'])
 
 export function pipelineView(snapshot: MonitorSnapshot) {
   return {
@@ -83,7 +83,7 @@ export async function runPipelineOperation(action: string, args: Record<string, 
     if (action === 'dispatch') {
       if (typeof args.to !== 'string' || typeof args.prompt !== 'string') throw new Error('to와 prompt 문자열이 필요합니다.')
       if (progress) emit('axMap · 대상 세션과 입력 상태 확인')
-      request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap' })
+      request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap', queueIfBusy: true })
     } else {
       if (typeof args.id !== 'string') throw new Error('요청 UUID가 필요합니다.')
       request = requestResult(args.id, cwd)
@@ -93,7 +93,7 @@ export async function runPipelineOperation(action: string, args: Record<string, 
     do {
       const message = `axMap · ${request.id.slice(0, 8)} · ${labels[request.state] || request.state}`
       if (progress && (message !== lastMessage || Date.now() - lastAt >= 1000)) { emit(message); lastMessage = message; lastAt = Date.now() }
-      if (cancelled() || request.state !== 'submitted' || Date.now() >= deadline) break
+      if (cancelled() || !['queued', 'sending', 'submitted'].includes(request.state) || Date.now() >= deadline) break
       await delay(Math.min(200, Math.max(0, deadline - Date.now())))
       if (cancelled()) break
       request = requestResult(request.id, cwd)

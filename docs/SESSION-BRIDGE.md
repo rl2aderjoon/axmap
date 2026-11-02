@@ -270,3 +270,37 @@ Windows 홈 경로에 공백이 있는 경우의 훅 실행도 현재 제한 사
 수신자는 작업 경계에서 `ax_mailbox`로 모아 읽는다. `ax_dispatch` / `bridge send`는
 명시적인 실행 턴이 필요한 작업용이다. 긴급 사유·만료·중복 방지·묶음 전송 및 강제 중단
 미지원 범위는 [SESSION-MAILBOX.md](SESSION-MAILBOX.md)에 정리했다.
+
+## 2026-11-02: Claude Code와 관리형 명령 큐
+
+`axmap bridge serve claude`로 Claude Code의 지속 연결을 시작한다. Codex와 동일하게
+`ax_dispatch` 또는 `axmap bridge send --to <세션 UUID>`로 서로 실행을 요청한다.
+stdin으로 본문을 전달하며 대기 중이면 즉시 실행, 작업·승인 대기 중이면 FIFO에
+접수한 뒤 완료 이벤트에서 자동 실행한다. `queued`와 `submitted`는 완료가 아니며
+`ax_result`/`bridge result`로 결과를 확인한다. `--no-queue`는 기존 busy 거절 모드다.
+
+위 동작은 관리형 stdio 연결에 적용된다. 이 단계에서는 임의의 Claude Code 터미널을
+자동으로 연결하지 않는다. `bridge serve claude`는 독립된 대화로 시작하며 다음 요청은
+그 대화와 프로세스를 유지한다. 일반 `ax_message`의 무호출 mailbox 정책은 유지한다.
+큐는 최대 100개, 실행 전 예산 재검사, 종료 시 미실행 요청 failed, 불명 결과 재전송 금지다.
+
+로컬 실물 검증: Claude Code 실행 중 두 번째 요청이 `queued`로 접수된 뒤 자동 완료했고,
+첫 요청의 표식을 그대로 답해 대화 유지도 확인했다. Codex에서 Claude로 자동 왕복한
+대화 `60add9ab-9186-4171-b568-35d22cae8332`도 completed로 끝났다. 이것은
+이 Windows PC의 관리형 연결 검증이며 임의의 기존 터미널 연결 검증은 아니다.
+
+### 같은 날 후속: 일반 `claude` 터미널 연결
+
+Windows 일반 Claude Code도 전역 훅으로 자동 등록한다. 설치 후에는 평소처럼
+작업 저장소에서 `claude`로 실행하면 된다. 이미 실행 중이던 세션은 새 훅을 읽도록
+한 번 다시 열어야 할 수 있다. 별도 관리형 모델로 바꾸지 않으며 원래 PID·대화 ID를 유지한다.
+`ax_sessions`의 provider=claude, transport=console 세션에 `ax_dispatch`로 요청한다.
+입력 초안과 실행·승인 대기 중에는 큐에 보관하고 빈 입력창에서만 전달한다.
+`ax_result`는 원래 대화 기록의 요청 UUID와 완료 응답을 확인한다. 비정상 전송은 재시도하지 않는다.
+
+실물 검증: Claude Code 2.1.316을 axMap 래퍼 없이 일반 대화형 모드로 실행해
+자동 등록·명령 주입·FIFO·같은 대화의 표식 기억을 확인했다. 일반 Claude가 ax_dispatch로
+Codex에 요청한 왕복도 완료했다(요청 `8a6acd83-b13c-434b-961a-a6004bec956e`).
+현재 Codex 세션의 MCP 도구에서 일반 Claude에 직접 요청한 결과도 확인했다
+(`1e204dc4-1859-4a2c-a835-76f4c20be6dc`, 응답 `CURRENT-CODEX-PLAIN-CLAUDE-OK`).
+전역 훅은 기존 설정을 보존하고 백업한다. SSH/WSL/Linux 터미널은 이 Windows 콘솔 경로의 범위 밖이다.

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { startManagedSession } from '../src/managed-session.mjs'
 import { sendTerminal } from '../src/terminal-bridge.mjs'
 import { normalizeUsage, usageDelta, sumUsage } from '../src/session-usage.mjs'
-import { sessions, dispatchRequest, sessionLeasePath } from '../src/bridge.mjs'
+import { sessions, dispatchRequest, requestResult, sessionLeasePath } from '../src/bridge.mjs'
 import { runDialogue, startBackgroundDialogue, dialogueResult, stopDialogue, unwrapEnvelope } from '../src/session-dialogue.mjs'
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
@@ -119,6 +119,74 @@ for (const provider of ['codex', 'agy', 'claude']) test(`${provider}: persistent
     await wait(100)
     assert.equal(events.filter(e => e.event === 'result').length, 2, 'idle does not generate another turn')
   } finally { session.close(); await session.exited }
+}))
+
+for (const provider of ['codex', 'agy', 'claude']) test(`${provider}: busy execution queues FIFO in the same conversation and runs after completion`, async () => withRepo(async cwd => {
+  const events = []
+  const s = await startManagedSession({ provider, executable: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), provider, 'slow-dialogue'], cwd,
+    onEvent: e => events.push(e) })
+  try {
+    const ids = [randomUUID(), randomUUID(), randomUUID()]
+    for (const [i, id] of ids.entries()) {
+      const receipt = await sendTerminal(s.id, { action: 'submit', queueIfBusy: true,
+        request: { id, to: s.id, prompt: `work ${i}` } })
+      assert.equal(!!receipt.queued, i > 0)
+    }
+    await assert.rejects(sendTerminal(s.id, { action: 'submit', queueIfBusy: true,
+      request: { id: ids[1], to: s.id, prompt: 'duplicate' } }), /이미 접수/)
+    assert.equal((await sendTerminal(s.id, { action: 'result', id: ids[1] })).state, 'queued')
+    await until(async () => (await sendTerminal(s.id, { action: 'result', id: ids[2] })).state === 'completed')
+    assert.deepEqual(events.filter(e => e.event === 'result').map(e => e.request.id), ids)
+    assert.equal(sessions(cwd)[0].usage.totalTokens, 480)
+    await wait(100)
+    assert.equal(events.filter(e => e.event === 'result').length, 3)
+  } finally { s.close(); await s.exited }
+}))
+
+test('cross-process dispatch exposes queue status and preserves completed results after host exit', async () => withRepo(async cwd => {
+  const entry = new URL('../src/managed-session.mjs', import.meta.url).href
+  const fixture = fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url))
+  const host = spawn(process.execPath, ['--input-type=module', '-e', `
+    import { startManagedSession } from ${JSON.stringify(entry)};
+    const s = await startManagedSession({ provider: 'claude', executable: process.execPath,
+      args: [${JSON.stringify(fixture)}, 'claude', 'slow-dialogue'], cwd: ${JSON.stringify(cwd)} });
+    console.log(s.id); process.stdin.once('data', () => { s.close(); process.stdin.destroy(); });
+  `], { cwd, env: { ...process.env }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+  let output = '', error = ''
+  host.stdout.on('data', chunk => { output += chunk })
+  host.stderr.on('data', chunk => { error += chunk })
+  const exited = new Promise(resolve => host.once('exit', resolve))
+  try {
+    const id = await until(() => output.trim() || (host.exitCode !== null && assert.fail(error)))
+    const first = dispatchRequest({ to: id, prompt: 'remember 731', cwd, queueIfBusy: true })
+    const second = dispatchRequest({ to: id, prompt: 'recall', cwd, queueIfBusy: true })
+    assert.equal(first.state, 'submitted')
+    assert.equal(second.state, 'queued')
+    await until(() => requestResult(second.id, cwd).state === 'completed')
+    host.stdin.write('close'); await exited
+    assert.equal(requestResult(first.id, cwd).state, 'completed', 'persisted outcome survives the closed pipe')
+    assert.equal(requestResult(second.id, cwd).state, 'completed')
+  } finally { if (host.exitCode === null) { host.stdin.write('close'); await exited } }
+}))
+
+test('queued requests recheck budget and shutdown fails unstarted work without replay', async () => withRepo(async cwd => {
+  const s = await startManagedSession({ provider: 'claude', executable: process.execPath, maxTokens: 100,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), 'claude', 'slow-dialogue'], cwd })
+  try {
+    const first = randomUUID(), second = randomUUID()
+    for (const id of [first, second]) await sendTerminal(s.id, { action: 'submit', queueIfBusy: true, request: { id, to: s.id, prompt: 'work' } })
+    const failed = await until(async () => { const r = await sendTerminal(s.id, { action: 'result', id: second }); return r.state === 'failed' ? r : null })
+    assert.match(failed.error, /토큰 한도/)
+    assert.equal(sessions(cwd)[0].usage.totalTokens, 160)
+  } finally { s.close(); await s.exited }
+  const next = await startManagedSession({ provider: 'claude', executable: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/structured-cli.mjs', import.meta.url)), 'claude', 'slow-dialogue'], cwd })
+  const ids = [randomUUID(), randomUUID()]
+  for (const id of ids) await sendTerminal(next.id, { action: 'submit', queueIfBusy: true, request: { id, to: next.id, prompt: 'work' } })
+  next.close(); await next.exited
+  const job = JSON.parse(fs.readFileSync(path.join(process.env.AXMAP_STATE_DIR, 'bridge', 'jobs', `${ids[1]}.json`)))
+  assert.equal(job.state, 'failed')
 }))
 
 test('Codex approval remains pending until the exact request receives a decision', async () => withRepo(async cwd => {
