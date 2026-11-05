@@ -31,6 +31,14 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.11.1
+
+<sub>November 5, 2026</sub>
+
+**Adds the `cli` package keyword so axMap appears under npm's CLI category.** No functional changes.
+
+---
+
 ### 1.11.0
 
 <sub>November 5, 2026</sub>
