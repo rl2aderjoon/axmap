@@ -1,0 +1,27 @@
+{
+  "agent": "claude-app-dialogue",
+  "task": null,
+  "intent": null,
+  "actor": null,
+  "session": "claude-app-dialogue-20261105",
+  "since": "2026-11-05T01:29:30.089Z",
+  "ttlMs": 10800000,
+  "paths": [
+    "docs/DECISIONS.md",
+    "docs/SESSION-BRIDGE.md",
+    "docs/SPEC.md",
+    "docs/THREADS.md",
+    "mcp/server.mjs",
+    "src/app-session.mjs",
+    "src/app-session.mts",
+    "src/bridge.mjs",
+    "src/bridge.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "src/terminal-bridge.mjs",
+    "src/terminal-bridge.mts",
+    "test/app-session.test.mjs",
+    "tools/bridge.mjs",
+    "tools/run.mjs"
+  ]
+}
