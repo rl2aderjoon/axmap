@@ -31,6 +31,23 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.11.0
+
+<sub>November 5, 2026</sub>
+
+**Claude and Codex desktop apps can now hand work back and forth with dialogue mode.**
+
+- App sessions without a console window (the Claude desktop app's Code tab, the Codex app, or `codex` without the axMap wrapper) are registered by the provider's own hooks under their conversation ID.
+- Ask each app to turn on dialogue mode (`ax_dialogue_mode`), then send with `ax_dispatch(to, from_session)`. When the recipient finishes its turn, its Stop hook continues the same conversation with the request; the final answer becomes the result and returns to the sender's next Stop. Waiting makes no model calls.
+- Dialogue mode is opt-in and bounded by time (default 30 minutes), turns (default 8) and a wait of at most 540 seconds per turn. A human prompt supersedes an in-flight request; turning the mode off fails undelivered requests.
+- An idle app is never woken from outside. Say one thing to the other app after turning dialogue mode on so its wait begins.
+- Run `axmap setup` again to install the 600-second Stop hook timeout. Codex may ask you to trust the changed hook; axMap does not bypass that.
+
+Validated on Windows between the real Claude desktop app and Codex app, including a second exchange with no human input. Token usage is not measured for app sessions, so `ax_chat` budgets do not apply to them.
+[Connection guide →](docs/SESSION-BRIDGE.md)
+
+---
+
 ### 1.10.0
 
 <sub>November 3, 2026</sub>
