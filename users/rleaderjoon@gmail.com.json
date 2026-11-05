@@ -21,7 +21,8 @@
     "claude-release-190",
     "codex-claude-queue-20261102",
     "codex-native-claude-20261102",
-    "codex-release-1-10-20261103"
+    "codex-release-1-10-20261103",
+    "claude-app-dialogue"
   ],
   "profileUpdatedAt": "2026-10-16T00:00:18.036Z"
 }
