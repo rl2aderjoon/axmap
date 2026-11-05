@@ -1,0 +1,16 @@
+{
+  "agent": "claude-release-1111",
+  "task": "1.11.1 cli 키워드 배포",
+  "intent": null,
+  "actor": null,
+  "session": "claude-release-1111-339",
+  "since": "2026-11-05T06:21:07.137Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "docs/RELEASE-1.11.1.md",
+    "package-lock.json",
+    "package.json"
+  ]
+}
