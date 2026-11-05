@@ -1,0 +1,16 @@
+{
+  "agent": "claude-app-dialogue",
+  "task": null,
+  "intent": null,
+  "actor": null,
+  "session": "claude-app-dialogue-20261105",
+  "since": "2026-11-05T03:29:04.748Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "docs/RELEASE-1.11.0.md",
+    "package-lock.json",
+    "package.json"
+  ]
+}
