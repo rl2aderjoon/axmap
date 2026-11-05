@@ -4,7 +4,7 @@
   "intent": null,
   "actor": null,
   "session": "claude-app-dialogue-20261105",
-  "since": "2026-11-05T01:29:30.089Z",
+  "since": "2026-11-05T01:32:18.583Z",
   "ttlMs": 10800000,
   "paths": [
     "docs/DECISIONS.md",
@@ -16,6 +16,8 @@
     "src/app-session.mts",
     "src/bridge.mjs",
     "src/bridge.mts",
+    "src/session-status.mjs",
+    "src/session-status.mts",
     "src/session-types.mjs",
     "src/session-types.mts",
     "src/terminal-bridge.mjs",
