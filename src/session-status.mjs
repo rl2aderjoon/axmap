@@ -2,6 +2,7 @@
 import { sessions } from './bridge.mjs';
 import { sendTerminal } from './terminal-bridge.mjs';
 import { externalStatus } from './external-console.mjs';
+import { appTurnAborted } from './app-session.mjs';
 /** Probe only the authenticated local control pipe. A saved idle/running record
  * cannot establish that its host still exists; no model request is submitted. */
 export async function sessionStatus(cwd = process.cwd()) {
@@ -20,6 +21,11 @@ export async function sessionStatus(cwd = process.cwd()) {
             catch {
                 return snapshot('unknown', 'unreachable');
             }
+        }
+        // 앱 세션은 물어볼 연결이 없다. 마지막 훅이 적은 상태만 보여 주고, 대기로 확정하지 않는다.
+        // 단 Codex 는 사용자가 중단한 차례에 Stop 훅이 없으므로, 기록 파일의 turn_aborted 로 '작업 중'을 바로잡는다.
+        if (session.transport === 'hook') {
+            return snapshot(appTurnAborted(session.id) ? 'idle' : session.state || 'unknown', 'unverified');
         }
         if (!['pty', 'stdio'].includes(session.transport || ''))
             return snapshot('unknown', 'unverified');
@@ -49,6 +55,9 @@ export function formatSessionStatus(listed) {
         return '이 저장소에 등록된 로컬 세션이 없습니다.';
     return ['axMap 세션 상태', ...listed.map(s => {
             const usage = s.usage?.totalTokens == null ? '미확인' : `${s.usage.totalTokens}${s.maxTokens ? ` / ${s.maxTokens}` : ''}`;
-            return `${safe(s.provider)}  ${safe(s.id)}\n  ${connections[s.connection] || '상태 미확인'} · ${labels[s.state] || '상태 미확인'}${s.role ? ` · ${safe(s.role)}` : ''}\n  확인된 누적 처리 토큰: ${usage}`;
+            const m = s.dialogueMode;
+            const mode = s.transport !== 'hook' ? '' : `\n  앱 세션 · 대화 모드 ${m && Date.parse(m.until) > Date.now() && m.used < m.maxTurns
+                ? `켜짐 (이어 가기 ${m.used}/${m.maxTurns}, ${m.until}까지)` : '꺼짐'}`;
+            return `${safe(s.provider)}  ${safe(s.id)}\n  ${connections[s.connection] || '상태 미확인'} · ${labels[s.state] || '상태 미확인'}${s.role ? ` · ${safe(s.role)}` : ''}${mode}\n  확인된 누적 처리 토큰: ${usage}`;
         })].join('\n');
 }

@@ -1,6 +1,6 @@
 /** Shared contracts for the local bridge. Runtime input checks still guard external data. */
 export type Provider = 'codex' | 'agy' | 'claude'
-export type Transport = 'console' | 'stdio' | 'pty' | 'agentapi'
+export type Transport = 'console' | 'stdio' | 'pty' | 'agentapi' | 'hook'
 export type SessionState = 'starting' | 'running' | 'idle' | 'awaiting_user' | 'settling' | 'closed' | 'unknown'
 export type RequestState = 'queued' | 'sending' | 'submitted' | 'unknown' | 'completed' | 'failed' | 'superseded'
 export type ConnectionState = 'connected' | 'closed' | 'unreachable' | 'unverified'
@@ -19,6 +19,8 @@ export interface Usage {
   totalTokens: number
   providerTotalTokens: number
 }
+/** 앱 세션의 대화 모드. 기다리는 쪽은 Stop 훅이고, used 는 이 모드로 이어 간 횟수다. */
+export interface DialogueMode { until: string; maxTurns: number; used: number; waitSeconds: number }
 export interface PendingApproval { id: string | number; method?: string; [key: string]: unknown }
 export interface SessionRecord {
   id: string
@@ -46,9 +48,12 @@ export interface SessionRecord {
   /** 로컬 파이프를 연 `bridge serve`·`run` 프로세스. 비 Windows 생존 확인에 쓴다. */
   hostPid?: number
   closedReason?: string
+  /** transport 'hook' 만: 대화 모드와 세션 ID 안내 여부 */
+  dialogueMode?: DialogueMode
+  announced?: boolean
 }
 export type PublicSession = Pick<SessionRecord, 'id' | 'provider' | 'workspaces' | 'model' | 'transport' |
-  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval' | 'conversationId'> & { liveness?: HostLiveness }
+  'state' | 'pid' | 'registeredAt' | 'event' | 'fullyIdle' | 'role' | 'usage' | 'usageKnown' | 'maxTokens' | 'pendingApproval' | 'conversationId' | 'dialogueMode'> & { liveness?: HostLiveness }
 export interface SessionSnapshot extends PublicSession {
   lastKnownState: SessionState | null
   state: SessionState
@@ -70,8 +75,12 @@ export interface RequestRecord {
   completedAt?: string
   conversationId?: string
   usage?: Usage | null
+  /** 보낸 쪽이 axMap 세션이면 그 ID. 앱 세션이면 회신이 이 세션의 Stop 훅으로 돌아간다. */
+  fromSession?: string
+  deliveredAt?: string
+  returnedAt?: string
 }
-export interface DispatchOptions { to: string; prompt: string; cwd: string; from?: string; dialogueId?: string | null; queueIfBusy?: boolean }
+export interface DispatchOptions { to: string; prompt: string; cwd: string; from?: string; fromSession?: string; dialogueId?: string | null; queueIfBusy?: boolean }
 export interface HookInput {
   cwd?: string
   transcript_path?: string

@@ -227,7 +227,7 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
  */
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
-const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop', 'ax_message', 'ax_mailbox', 'ax_mailbox_flush'])
+const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dialogue_mode', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop', 'ax_message', 'ax_mailbox', 'ax_mailbox_flush'])
 const PIPELINE_TOOLS = new Set(['ax_pipeline', 'ax_pipeline_state', 'ax_pipeline_watch'])
 const PIPELINE_URI = 'ui://axmap/pipeline/v1.html'
 const PIPELINE_MIME = 'text/html;profile=mcp-app'
@@ -513,7 +513,18 @@ const TOOLS = [
       to: { type: 'string', description: 'ax_sessions에서 확인한 상대 세션 UUID' },
       prompt: { type: 'string', description: '상대가 실행할 작업 요청' },
       wait_ms: { type: 'integer', minimum: 0, maximum: 30000, description: '전달 후 회신을 로컬에서 기다릴 최대 시간(ms). 짧은 요청은 30000으로 한 번에 회수한다. 기본 0.' },
+      from_session: { type: 'string', description: '내 axMap 세션 UUID(대화 시작 때 안내된 값). 상대가 앱 세션이면 그 답이 내 대화 모드로 돌아온다.' },
     }, required: ['to', 'prompt'] },
+  },
+  {
+    name: 'ax_dialogue_mode',
+    description: '앱 세션(Claude 앱·Codex 앱·codex, transport=hook)의 대화 모드를 켜거나 끈다. 사용자가 이 세션에서 다른 AI 세션과 사람 없이 주고받으며 작업을 이어 가라고 할 때만 켠다. 켜진 세션은 응답이 끝날 때마다 최대 540초 상대의 요청·회신을 모델 호출 없이 기다렸다가 같은 대화에서 이어 가며, 그동안 앱은 작업 중으로 보인다. 쉬고 있는 앱을 밖에서 깨우지는 못한다. 기본 30분·자동 이어 가기 8회.',
+    inputSchema: { type: 'object', properties: {
+      session: { type: 'string', description: '대화 모드를 바꿀 앱 세션 UUID. 보통 이 대화에 안내된 내 세션 ID' },
+      on: { type: 'boolean' },
+      minutes: { type: 'integer', minimum: 1, maximum: 240, description: '켜 둘 시간. 기본 30' },
+      max_turns: { type: 'integer', minimum: 1, maximum: 50, description: '자동으로 이어 갈 최대 횟수. 기본 8 (Claude 기본 연속 이어 가기 한도와 같다)' },
+    }, required: ['session', 'on'] },
   },
   {
     name: 'ax_result',
@@ -970,7 +981,10 @@ function dispatch(name, args = {}) {
       ...[['reason', args.reason], ['topic', args.topic], ['key', args.key], ['ttl-seconds', args.ttl_seconds]].flatMap(([k, v]) => v === undefined ? [] : [`--${k}`, String(v)])], args.text)
     case 'ax_mailbox': return bridge(['mailbox', '--to', args.to, ...(args.take ? ['--take'] : []), ...(args.all ? ['--all'] : []), ...(args.at ? ['--at', args.at] : [])])
     case 'ax_mailbox_flush': return bridge(['flush', '--to', args.to, '--at', args.at])
-    case 'ax_dispatch': return bridge(['send', '--to', args.to, '--wait-ms', String(args.wait_ms ?? 0)], args.prompt)
+    case 'ax_dispatch': return bridge(['send', '--to', args.to, '--wait-ms', String(args.wait_ms ?? 0),
+      ...(args.from_session ? ['--from-session', String(args.from_session)] : [])], args.prompt)
+    case 'ax_dialogue_mode': return bridge(['mode', '--session', String(args.session), args.on ? '--on' : '--off',
+      ...[['minutes', args.minutes], ['max-turns', args.max_turns]].flatMap(([k, v]) => v === undefined ? [] : [`--${k}`, String(v)])])
     case 'ax_result': return bridge(['result', args.id, '--wait-ms', String(args.wait_ms ?? 0)])
     case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,
       ...['maxTurns', 'maxTokens', 'maxMessageChars'].flatMap(key => args[key] === undefined ? [] :

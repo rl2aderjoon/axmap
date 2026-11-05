@@ -311,7 +311,9 @@ export function installTerminalHooks(home = os.homedir(), provider = 'agy') {
                 const hooks = group.hooks.filter(h => h.statusMessage !== 'axMap terminal bridge');
                 return hooks.length ? [{ ...group, hooks }] : [];
             });
-            config.hooks[event].push({ hooks: [{ type: 'command', command, timeout: 10, statusMessage: 'axMap terminal bridge' }] });
+            // Stop 은 대화 모드에서 상대를 최대 540초 기다린다(src/app-session). 공급자 기본 한도 600초를 그대로 준다.
+            // 대화 모드가 꺼져 있으면 지금처럼 바로 끝난다.
+            config.hooks[event].push({ hooks: [{ type: 'command', command, timeout: event === 'Stop' ? 600 : 10, statusMessage: 'axMap terminal bridge' }] });
         }
     }
     if (provider === 'agy')

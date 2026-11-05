@@ -81,7 +81,10 @@ export async function runPipelineOperation(action, args, emit = () => { }, cance
                 throw new Error('to와 prompt 문자열이 필요합니다.');
             if (progress)
                 emit('axMap · 대상 세션과 입력 상태 확인');
-            request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap', queueIfBusy: true });
+            if (args.from_session !== undefined && typeof args.from_session !== 'string')
+                throw new Error('from_session 은 세션 UUID 문자열이어야 합니다.');
+            request = dispatchRequest({ to: args.to, prompt: args.prompt, cwd, from: process.env.AXMAP_AGENT || 'axmap',
+                ...(args.from_session ? { fromSession: args.from_session } : {}), queueIfBusy: true });
         }
         else {
             if (typeof args.id !== 'string')

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { startTerminal, sendTerminal, installTerminalHooks, installTerminalRuntime } from '../src/terminal-bridge.mjs'
 import { registerExternalHook } from '../src/external-console.mjs'
+import { handleAppHook } from '../src/app-session.mjs'
 import { RPC_NOT_DELIVERED_EXIT } from '../src/session-types.mjs'
 
 const [command, ...args] = process.argv.slice(2)
@@ -22,13 +23,24 @@ try {
     }
   } else if (command === 'hook') {
     const input = JSON.parse(fs.readFileSync(0, 'utf8'))
+    let output = {}
     if (process.env.AXMAP_TERMINAL_SESSION && process.env.AXMAP_TERMINAL_TOKEN) {
       await sendTerminal(process.env.AXMAP_TERMINAL_SESSION, { action: 'hook', event: args[0], input }, process.env.AXMAP_TERMINAL_TOKEN)
-    } else if (process.platform === 'win32' && (input.conversationId || input.session_id)) {
-      try { registerExternalHook(input, args[0], args.includes('--provider') ? args[args.indexOf('--provider') + 1] : undefined) }
-      catch (e) { console.error(`axMap 독립 콘솔: ${e.message}`) }
+    } else if (input.conversationId || input.session_id) {
+      const provider = args.includes('--provider') ? args[args.indexOf('--provider') + 1] : undefined
+      // 콘솔 창이 있는 Windows agy·Claude 는 지금처럼 창에 입력하는 경로를 쓴다.
+      // 창이 없으면(앱, codex) 훅만으로 받는 앱 세션 경로로 간다.
+      let viaConsole = false
+      if (process.platform === 'win32' && provider !== 'codex') {
+        try { viaConsole = !!registerExternalHook(input, args[0], provider).id }
+        catch (e) { console.error(`axMap 독립 콘솔: ${e.message}`) }
+      }
+      if (!viaConsole && ['claude', 'codex'].includes(provider)) {
+        try { output = handleAppHook(input, args[0], provider) }
+        catch (e) { console.error(`axMap 앱 세션: ${e.message}`) }
+      }
     }
-    console.log('{}')
+    console.log(JSON.stringify(output))
   } else if (command === '--help' || !command) {
     console.log('axmap run agy|codex [기존 CLI 인수...] [--cwd 작업폴더]\n사용자가 여는 실제 CLI 터미널을 유지합니다. 별도 연결 URL은 필요 없습니다.')
   } else {

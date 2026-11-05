@@ -9,6 +9,11 @@ import { sendTerminal } from '../src/terminal-bridge.mjs'
 import { sessionStatus, formatSessionStatus } from '../src/session-status.mjs'
 import { attachConsole } from '../src/external-console.mjs'
 import { postMail, collectMail, flushMail } from '../src/session-mailbox.mjs'
+import { setDialogueMode } from '../src/app-session.mjs'
+
+// Windows PowerShell 5.1 은 파이프로 넘기는 글 앞에 BOM 을 붙이고 줄바꿈을 CRLF 로 보낸다(2026-11-05 실측).
+// 그대로 두면 상대 AI 의 프롬프트 첫 글자에 보이지 않는 문자가 섞인다.
+const stdinText = () => fs.readFileSync(0, 'utf8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
 
 const args = process.argv.slice(2)
 const [command] = args
@@ -17,7 +22,7 @@ const output = (value) => console.log(JSON.stringify(value, null, 2))
 try {
   switch (command) {
     case 'message': {
-      const r = postMail({ to: option('to'), cwd: process.cwd(), text: fs.readFileSync(0, 'utf8'),
+      const r = postMail({ to: option('to'), cwd: process.cwd(), text: stdinText(),
         priority: option('priority') || 'boundary', reason: option('reason'), topic: option('topic'), key: option('key'),
         ttlSeconds: Number(option('ttl-seconds') || 3600) })
       output(r)
@@ -51,7 +56,7 @@ try {
       break
     }
     case 'chat': {
-      const options = { ...(option('id') ? { id: option('id') } : {}), left: option('left'), right: option('right'), prompt: fs.readFileSync(0, 'utf8'),
+      const options = { ...(option('id') ? { id: option('id') } : {}), left: option('left'), right: option('right'), prompt: stdinText(),
         maxTurns: Number(option('max-turns') || 4), maxTokens: Number(option('max-tokens') || 50000),
         maxMessageChars: Number(option('max-message-chars') || 2000),
         ...(option('timeout-ms') ? { timeoutMs: Number(option('timeout-ms')) } : {}),
@@ -63,7 +68,7 @@ try {
       break
     }
     case 'dialogue': output(dialogueResult(args[1])); break
-    case 'notice': output(await sendTerminal(option('to'), { action: 'notice', text: fs.readFileSync(0, 'utf8') })); break
+    case 'notice': output(await sendTerminal(option('to'), { action: 'notice', text: stdinText() })); break
     case 'stop': output(stopDialogue(args[1])); break
     case 'answer': output(await sendTerminal(option('to'), { action: 'answer', id: option('request'), decision: option('decision') })); break
     case 'install':
@@ -80,6 +85,14 @@ try {
       break
     }
     case 'sessions': output(sessions(process.cwd())); break
+    case 'mode': {
+      const on = args.includes('--on'), off = args.includes('--off')
+      if (on === off) throw new Error('bridge mode --session <UUID> --on|--off 중 하나를 주세요.')
+      const num = name => option(name) === undefined ? undefined : Number(option(name))
+      output(setDialogueMode({ session: option('session'), cwd: process.cwd(), on,
+        ...[['minutes', num('minutes')], ['maxTurns', num('max-turns')], ['waitSeconds', num('wait-seconds')]].reduce((o, [k, v]) => v === undefined ? o : { ...o, [k]: v }, {}) }))
+      break
+    }
     case 'status': {
       const listed = await sessionStatus()
       if (args.includes('--json')) output(listed)
@@ -89,7 +102,7 @@ try {
     case 'send': {
       const waitMs = Number(option('wait-ms') || 0)
       if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 30000) throw new Error('wait-ms는 0~30000 정수여야 합니다.')
-      const r = dispatchRequest({ to: option('to'), prompt: fs.readFileSync(0, 'utf8'), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap', queueIfBusy: !args.includes('--no-queue') })
+      const r = dispatchRequest({ to: option('to'), prompt: stdinText(), cwd: process.cwd(), from: process.env.AXMAP_AGENT || 'axmap', ...(option('from-session') ? { fromSession: option('from-session') } : {}), queueIfBusy: !args.includes('--no-queue') })
       const result = waitMs && ['queued', 'submitted'].includes(r.state) ? await waitForRequest(r.id, process.cwd(), waitMs) : r
       output(result)
       if (result.state === 'unknown') process.exitCode = 2
@@ -131,6 +144,9 @@ axmap bridge mailbox --to <UUID> [--all]
     읽기만 합니다. --take --at checkpoint로 작업 경계에서 묶음 회수 (모델 호출 없음).
 axmap bridge flush --to <UUID> --at task-complete|test-complete|experiment-complete|checkpoint
     필요할 때만 idle 수신자에게 큐를 한 요청으로 전달. 자동 감시·중단·재전송 없음.
+axmap bridge mode --session <앱 세션 UUID> --on|--off [--minutes 30] [--max-turns 8] [--wait-seconds 540]
+    앱(Claude 앱·Codex 앱)·codex 세션의 대화 모드. 켜면 응답이 끝날 때 상대 요청·회신을 기다렸다가 같은 대화에서 이어 갑니다.
+axmap bridge send ... --from-session <내 세션 UUID>   상대가 앱 세션이면 그 답이 내 세션으로 돌아옵니다(내가 대화 모드일 때)
 axmap bridge result <요청 UUID> [--wait-ms 30000]    제출/완료/불명 상태와 결과. 대기 중 모델 호출 없음
 관리형 stdio: Codex App Server / agy stream-json. PTY와 agentapi는 별도 실험 경로입니다.`)
       break
