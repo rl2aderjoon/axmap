@@ -1,10 +1,10 @@
 {
   "agent": "codex-queue",
-  "task": "사용자 입력과 독립적인 협업 큐 및 명시적 회신",
+  "task": "협업 큐의 기존 토론 세션 자동 연결 유지",
   "intent": null,
   "actor": null,
   "session": "a1e04ebb-561b-4bf8-adf2-45c393065a74",
-  "since": "2026-11-06T05:23:46.396Z",
+  "since": "2026-11-06T05:28:59.351Z",
   "ttlMs": 1800000,
   "paths": [
     "docs/APP-NATIVE.md",
@@ -12,6 +12,8 @@
     "mcp/server.mjs",
     "src/app-language.mjs",
     "src/app-language.mts",
+    "src/app-native-supervisor.mjs",
+    "src/app-native-supervisor.mts",
     "src/app-native.mjs",
     "src/app-native.mts",
     "src/app-queue.mjs",
