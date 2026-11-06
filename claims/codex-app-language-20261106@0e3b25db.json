@@ -1,0 +1,20 @@
+{
+  "agent": "codex-app-language-20261106",
+  "task": null,
+  "intent": "S15P31E109-207 사용자 언어 설정을 따라 협업 메시지를 한 언어로 한 번만 표시한다",
+  "actor": null,
+  "session": "01a1ae32-81ed-7e42-9e04-ebb2f19a7e04",
+  "since": "2026-11-06T01:46:41.191Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/APP-NATIVE.md",
+    "src/app-language.mjs",
+    "src/app-language.mts",
+    "src/app-native.mjs",
+    "src/app-native.mts",
+    "src/app-session.mjs",
+    "src/app-session.mts",
+    "test/app-language.test.mjs",
+    "test/app-native.test.mjs"
+  ]
+}
