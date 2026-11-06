@@ -1,0 +1,26 @@
+{
+  "agent": "codex-queue",
+  "task": "사용자 입력과 독립적인 협업 큐 및 명시적 회신",
+  "intent": null,
+  "actor": null,
+  "session": "a1e04ebb-561b-4bf8-adf2-45c393065a74",
+  "since": "2026-11-06T05:23:46.396Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/APP-NATIVE.md",
+    "docs/DECISIONS.md",
+    "mcp/server.mjs",
+    "src/app-language.mjs",
+    "src/app-language.mts",
+    "src/app-native.mjs",
+    "src/app-native.mts",
+    "src/app-queue.mjs",
+    "src/app-queue.mts",
+    "src/app-session.mjs",
+    "src/app-session.mts",
+    "src/session-types.mts",
+    "test/app-native.test.mjs",
+    "test/app-queue.test.mjs",
+    "tools/bridge.mjs"
+  ]
+}
