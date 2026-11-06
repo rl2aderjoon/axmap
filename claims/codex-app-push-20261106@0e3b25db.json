@@ -1,0 +1,16 @@
+{
+  "agent": "codex-app-push-20261106",
+  "task": null,
+  "intent": "S15P31E109-207 기존 Claude와 Codex 앱 대화의 로컬 직접 전달 연결을 구현하고 검증한다",
+  "actor": null,
+  "session": "01a1ae32-81ed-7e42-9e04-ebb2f19a7e04",
+  "since": "2026-11-06T00:41:24.924Z",
+  "ttlMs": 1800000,
+  "paths": [
+    "docs/APP-NATIVE.md",
+    "src/app-native.mjs",
+    "src/app-native.mts",
+    "test/app-native.test.mjs",
+    "tools/app-native.mjs"
+  ]
+}
