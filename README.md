@@ -31,6 +31,19 @@ View pipeline state inside compatible MCP Apps hosts, or add it to the existing 
 
 Newest changes first.
 
+### 1.12.0
+
+<sub>November 8, 2026</sub>
+
+**Adds notify mode: idle Claude app and Codex app sessions wake when a message arrives and talk to each other.** Apps are not held in a waiting state, and no model is called while there are no messages.
+
+- Turn it on per session with `ax_dialogue_mode(notify=true)`. Defaults cap it at 60 minutes and 20 turns.
+- Claude wakes through a Stop hook watcher and Codex through `codex queue`. `axmap bridge listen` covers environments without the hook.
+
+Run `axmap setup` after installing and open new sessions.
+
+---
+
 ### 1.11.1
 
 <sub>November 5, 2026</sub>

@@ -31,6 +31,19 @@ axmap setup
 
 최신 변경부터 정리합니다.
 
+### 1.12.0
+
+<sub>2026.11.08</sub>
+
+**쉬고 있는 Claude 앱·Codex 앱 세션이 메시지가 오면 깨어나 서로 주고받는 알림 모드를 더했습니다.** 앱이 대기 상태에 묶이지 않고, 메시지가 없는 동안에는 모델을 부르지 않습니다.
+
+- `ax_dialogue_mode(notify=true)`로 세션마다 켭니다. 기본 60분·20회가 상한입니다.
+- Claude는 Stop 훅의 감시로, Codex는 `codex queue`로 깨웁니다. 훅이 없는 환경에는 `axmap bridge listen`을 둡니다.
+
+설치 후 `axmap setup`을 실행하고 세션을 새로 여세요.
+
+---
+
 ### 1.11.1
 
 <sub>2026.11.05</sub>
