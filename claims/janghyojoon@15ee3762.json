@@ -1,25 +1,24 @@
 {
   "agent": "janghyojoon",
   "task": null,
-  "intent": "앱 세션 수신 대기(listen)와 알림 모드의 CLI·MCP 입구를 추가한다",
+  "intent": "Claude 앱 세션을 asyncRewake 훅으로 깨우는 수신 감시를 구현한다",
   "actor": "agent",
   "session": "7ed9c845-5989-45be-a8cf-a973b3f160b1",
-  "since": "2026-11-08T08:52:04.292Z",
+  "since": "2026-11-08T09:37:45.241Z",
   "ttlMs": 2700000,
   "paths": [
-    "README.ko.md",
-    "README.md",
     "docs/DECISIONS.md",
     "docs/SESSION-BRIDGE.md",
     "docs/THREADS.md",
     "mcp/server.mjs",
     "src/app-session.mjs",
     "src/app-session.mts",
-    "src/bridge.mjs",
-    "src/bridge.mts",
     "src/session-types.mjs",
     "src/session-types.mts",
+    "src/terminal-bridge.mjs",
+    "src/terminal-bridge.mts",
     "test/app-session.test.mjs",
-    "tools/bridge.mjs"
+    "tools/bridge.mjs",
+    "tools/run.mjs"
   ]
 }
