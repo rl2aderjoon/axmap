@@ -1,21 +1,25 @@
 {
   "agent": "janghyojoon",
   "task": null,
-  "intent": "쉬고 있는 Claude·Codex 앱 세션을 토큰 소모 없이 깨워 앱끼리 바로 주고받게 한다",
+  "intent": "앱 세션 수신 대기(listen)와 알림 모드의 CLI·MCP 입구를 추가한다",
   "actor": "agent",
   "session": "7ed9c845-5989-45be-a8cf-a973b3f160b1",
-  "since": "2026-11-08T08:49:18.079Z",
+  "since": "2026-11-08T08:52:04.292Z",
   "ttlMs": 2700000,
   "paths": [
+    "README.ko.md",
+    "README.md",
     "docs/DECISIONS.md",
     "docs/SESSION-BRIDGE.md",
     "docs/THREADS.md",
+    "mcp/server.mjs",
     "src/app-session.mjs",
     "src/app-session.mts",
     "src/bridge.mjs",
     "src/bridge.mts",
     "src/session-types.mjs",
     "src/session-types.mts",
-    "test/app-session.test.mjs"
+    "test/app-session.test.mjs",
+    "tools/bridge.mjs"
   ]
 }
