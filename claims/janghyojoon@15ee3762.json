@@ -1,10 +1,10 @@
 {
   "agent": "janghyojoon",
   "task": null,
-  "intent": "Claude Stop 훅에 깨우기 감시가 추가된 설치 결과를 테스트에 반영한다",
+  "intent": "앱 세션 알림 모드 변경을 커밋하고 main에 push한다",
   "actor": "agent",
   "session": "7ed9c845-5989-45be-a8cf-a973b3f160b1",
-  "since": "2026-11-08T09:42:32.826Z",
+  "since": "2026-11-08T09:54:09.950Z",
   "ttlMs": 2700000,
   "paths": [
     "docs/DECISIONS.md",
