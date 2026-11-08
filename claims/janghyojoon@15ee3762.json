@@ -1,0 +1,16 @@
+{
+  "agent": "janghyojoon",
+  "task": null,
+  "intent": "axmap-cli 1.12.0 릴리스를 준비하고 배포한다",
+  "actor": "agent",
+  "session": "7ed9c845-5989-45be-a8cf-a973b3f160b1",
+  "since": "2026-11-08T10:51:40.178Z",
+  "ttlMs": 2700000,
+  "paths": [
+    "README.ko.md",
+    "README.md",
+    "docs/RELEASE-1.12.0.md",
+    "package-lock.json",
+    "package.json"
+  ]
+}
