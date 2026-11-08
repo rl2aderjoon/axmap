@@ -45,7 +45,7 @@ test('Claude hook install preserves settings and unrelated hooks, is idempotent,
     installTerminalHooks(home, 'claude'); installTerminalHooks(home, 'claude')
     const saved = JSON.parse(fs.readFileSync(target, 'utf8'))
     assert.equal(saved.model, original.model)
-    assert.equal(saved.hooks.Stop.length, 2)
+    assert.equal(saved.hooks.Stop.length, 3, '기존 훅 + 깨우기 감시 + 응답 끝 훅, 다시 설치해도 늘지 않는다')
     assert.equal(saved.hooks.Stop[0].hooks[0].command, 'echo keep')
     for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']) {
       const h = saved.hooks[event].at(-1).hooks[0]

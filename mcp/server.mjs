@@ -518,10 +518,11 @@ const TOOLS = [
   },
   {
     name: 'ax_dialogue_mode',
-    description: '앱 세션(Claude 앱·Codex 앱·codex, transport=hook)의 대화 모드를 켜거나 끈다. 사용자가 이 세션에서 다른 AI 세션과 사람 없이 주고받으며 작업을 이어 가라고 할 때만 켠다. 켜진 세션은 응답이 끝날 때마다 최대 540초 상대의 요청·회신을 모델 호출 없이 기다렸다가 같은 대화에서 이어 가며, 그동안 앱은 작업 중으로 보인다. 쉬고 있는 앱을 밖에서 깨우지는 못한다. 기본 30분·자동 이어 가기 8회.',
+    description: '앱 세션(Claude 앱·Codex 앱·codex, transport=hook)의 대화 모드를 켜거나 끈다. 사용자가 이 세션에서 다른 AI 세션과 사람 없이 주고받으며 작업을 이어 가라고 할 때만 켠다. 켜진 세션은 응답이 끝날 때마다 최대 540초 상대의 요청·회신을 모델 호출 없이 기다렸다가 같은 대화에서 이어 가며, 그동안 앱은 작업 중으로 보인다. 기본 30분·자동 이어 가기 8회. notify=true 는 기다리지 않는 알림 모드다: 응답을 끝내도 되고, 메시지가 오면 이 대화가 깨어난다(기본 60분·20회). 깨우기 훅이 설치되지 않은 Claude 세션은 켠 뒤 Monitor 로 axmap bridge listen 을 실행한다.',
     inputSchema: { type: 'object', properties: {
       session: { type: 'string', description: '대화 모드를 바꿀 앱 세션 UUID. 보통 이 대화에 안내된 내 세션 ID' },
       on: { type: 'boolean' },
+      notify: { type: 'boolean', description: '기다리지 않고 메시지가 올 때 깨어나는 알림 모드' },
       minutes: { type: 'integer', minimum: 1, maximum: 240, description: '켜 둘 시간. 기본 30' },
       max_turns: { type: 'integer', minimum: 1, maximum: 50, description: '자동으로 이어 갈 최대 횟수. 기본 8 (Claude 기본 연속 이어 가기 한도와 같다)' },
     }, required: ['session', 'on'] },
@@ -983,7 +984,7 @@ function dispatch(name, args = {}) {
     case 'ax_mailbox_flush': return bridge(['flush', '--to', args.to, '--at', args.at])
     case 'ax_dispatch': return bridge(['send', '--to', args.to, '--wait-ms', String(args.wait_ms ?? 0),
       ...(args.from_session ? ['--from-session', String(args.from_session)] : [])], args.prompt)
-    case 'ax_dialogue_mode': return bridge(['mode', '--session', String(args.session), args.on ? '--on' : '--off',
+    case 'ax_dialogue_mode': return bridge(['mode', '--session', String(args.session), args.on ? '--on' : '--off', ...(args.notify ? ['--notify'] : []),
       ...[['minutes', args.minutes], ['max-turns', args.max_turns]].flatMap(([k, v]) => v === undefined ? [] : [`--${k}`, String(v)])])
     case 'ax_result': return bridge(['result', args.id, '--wait-ms', String(args.wait_ms ?? 0)])
     case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,

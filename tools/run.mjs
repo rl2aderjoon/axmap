@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { startTerminal, sendTerminal, installTerminalHooks, installTerminalRuntime } from '../src/terminal-bridge.mjs'
 import { registerExternalHook } from '../src/external-console.mjs'
-import { handleAppHook } from '../src/app-session.mjs'
+import { handleAppHook, watchAppSession } from '../src/app-session.mjs'
 import { RPC_NOT_DELIVERED_EXIT } from '../src/session-types.mjs'
 
 const [command, ...args] = process.argv.slice(2)
@@ -41,6 +41,13 @@ try {
       }
     }
     console.log(JSON.stringify(output))
+  } else if (command === 'hook-watch') {
+    // 종료 코드 2 는 Claude 를 깨운다(asyncRewake). 오류로 대화를 깨우면 안 되므로 실패는 0 으로 끝낸다.
+    try {
+      const provider = args.includes('--provider') ? args[args.indexOf('--provider') + 1] : undefined
+      const text = await watchAppSession(JSON.parse(fs.readFileSync(0, 'utf8')), provider)
+      if (text) { process.stderr.write(`${text}\n`); process.exitCode = 2 }
+    } catch (e) { console.error(`axMap 앱 세션: ${e.message}`) }
   } else if (command === '--help' || !command) {
     console.log('axmap run agy|codex [기존 CLI 인수...] [--cwd 작업폴더]\n사용자가 여는 실제 CLI 터미널을 유지합니다. 별도 연결 URL은 필요 없습니다.')
   } else {

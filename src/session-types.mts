@@ -20,10 +20,12 @@ export interface Usage {
   providerTotalTokens: number
 }
 /** 앱 세션의 대화 모드. 기다리는 쪽은 Stop 훅이고, used 는 이 모드로 이어 간 횟수다. */
-export interface DialogueMode { until: string; maxTurns: number; used: number; waitSeconds: number }
+export interface DialogueMode { until: string; maxTurns: number; used: number; waitSeconds: number; notify?: boolean }
 export interface PendingApproval { id: string | number; method?: string; [key: string]: unknown }
 export interface SessionRecord {
   id: string
+  lastPushAt?: string
+  watcher?: string
   provider: Provider
   transport?: Transport
   workspaces: string[]

@@ -311,6 +311,11 @@ export function installTerminalHooks(home = os.homedir(), provider = 'agy') {
                 const hooks = group.hooks.filter(h => h.statusMessage !== 'axMap terminal bridge');
                 return hooks.length ? [{ ...group, hooks }] : [];
             });
+            // 알림 모드의 Claude 세션을 깨우는 백그라운드 감시. 대화 모드 최대 시간(240분)보다 조금 길게 둬서 우리가 먼저 끝낸다.
+            if (provider === 'claude' && event === 'Stop') {
+                const watch = `"${process.execPath.replaceAll('\\', '/')}" "${script.replaceAll('\\', '/')}" hook-watch --provider claude`;
+                config.hooks[event].push({ hooks: [{ type: 'command', command: watch, asyncRewake: true, timeout: 14460, statusMessage: 'axMap terminal bridge' }] });
+            }
             // Stop 은 대화 모드에서 상대를 최대 540초 기다린다(src/app-session). 공급자 기본 한도 600초를 그대로 준다.
             // 대화 모드가 꺼져 있으면 지금처럼 바로 끝난다.
             config.hooks[event].push({ hooks: [{ type: 'command', command, timeout: event === 'Stop' ? 600 : 10, statusMessage: 'axMap terminal bridge' }] });

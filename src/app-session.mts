@@ -24,6 +24,12 @@ export const MAX_WAIT_SECONDS = 540
 const DEFAULT_MAX_TURNS = 8
 /** Claude 는 훅이 넣는 문자열을 1만 자에서 자른다. 머리말을 붙일 자리를 남긴다. */
 const MAX_REPLY_CHARS = 8000
+/** 알림 모드는 사람 없이 오가므로 기본 상한을 둔다. 한 번 켜면 한 시간 작업을 덮고, 왕복이 번지면 20회에서 멈춘다. */
+const NOTIFY_MINUTES = 60
+const NOTIFY_TURNS = 20
+/** codex queue 는 접수와 차례 시작 사이에 수 초가 걸린다(2026-11-08 Codex 앱 실측 약 9초).
+ * 시작을 못 본 채 이 시간이 지나면 전달이 사라진 것으로 보고 다음 것을 막지 않는다. */
+const PUSH_START_GRACE_MS = 120000
 
 const sessionsDir = () => path.join(bridgeHome(), 'sessions')
 const requestsDir = () => path.join(bridgeHome(), 'requests')
@@ -225,7 +231,10 @@ function completeInFlight(id: string, input: HookInput, transcript: string | und
 }
 
 /** 다음에 이어 갈 내용 하나를 꺼낸다: 내게 온 요청(먼저 온 순서), 없으면 내가 보낸 요청의 회신. */
-function takeNext(id: string, now: () => number): string | null {
+function takeNext(id: string, now: () => number): string | null { return takeDelivery(id, now)?.text ?? null }
+
+interface Delivery { text: string; requestId?: string }
+function takeDelivery(id: string, now: () => number): Delivery | null {
   return withRepoLock(queueLock(id), () => {
     const s = readJSON<SessionRecord>(sessionPath(id))
     if (!modeActive(s.dialogueMode, now())) return null
@@ -252,7 +261,7 @@ function takeNext(id: string, now: () => number): string | null {
     }
     writeJSON(sessionPath(id), { ...s, state: 'running', fullyIdle: false,
       dialogueMode: { ...s.dialogueMode, used: s.dialogueMode.used + 1 } })
-    return text
+    return { text, ...(request ? { requestId: request.id } : {}) }
   })
 }
 
@@ -268,10 +277,12 @@ export function enqueueAppRequest(s: SessionRecord, request: Omit<RequestRecord,
   })
 }
 
-export interface ModeOptions { session: string; cwd: string; on: boolean; minutes?: number; maxTurns?: number; waitSeconds?: number }
-export function setDialogueMode({ session, cwd, on, minutes = 30, maxTurns = DEFAULT_MAX_TURNS, waitSeconds = MAX_WAIT_SECONDS }: ModeOptions) {
+export interface ModeOptions { session: string; cwd: string; on: boolean; notify?: boolean; minutes?: number; maxTurns?: number; waitSeconds?: number }
+export function setDialogueMode({ session, cwd, on, notify = false, minutes = notify ? NOTIFY_MINUTES : 30, maxTurns = notify ? NOTIFY_TURNS : DEFAULT_MAX_TURNS, waitSeconds: askedWait = MAX_WAIT_SECONDS }: ModeOptions) {
+  // 알림 모드의 Stop 훅은 기다리지 않는다. 쉬는 세션은 listen 이 깨운다.
+  const waitSeconds = notify ? 0 : askedWait
   if (!UUID.test(session || '')) throw new Error('세션 ID는 UUID여야 합니다.')
-  for (const [name, value, max] of [['minutes', minutes, 240], ['maxTurns', maxTurns, 50], ['waitSeconds', waitSeconds, MAX_WAIT_SECONDS]] as const) {
+  for (const [name, value, max] of [['minutes', minutes, 240], ['maxTurns', maxTurns, 50], ...(notify ? [] : [['waitSeconds', waitSeconds, MAX_WAIT_SECONDS]])] as [string, number, number][]) {
     if (!Number.isSafeInteger(value) || value < 1 || value > max) throw new Error(`${name} 는 1~${max} 정수여야 합니다.`)
   }
   if (!fs.existsSync(sessionPath(session))) throw new Error('등록되지 않은 세션입니다.')
@@ -282,13 +293,143 @@ export function setDialogueMode({ session, cwd, on, minutes = 30, maxTurns = DEF
     if (s.transport !== 'hook') throw new Error('대화 모드는 앱 세션(transport: hook)에만 있습니다. 터미널·관리형 세션은 이미 바로 받습니다.')
     if (on && s.state === 'closed') throw new Error('종료된 세션입니다.')
     const dialogueMode: DialogueMode | undefined = on
-      ? { until: new Date(Date.now() + minutes * 60000).toISOString(), maxTurns, used: 0, waitSeconds } : undefined
+      ? { until: new Date(Date.now() + minutes * 60000).toISOString(), maxTurns, used: 0, waitSeconds, ...(notify ? { notify: true } : {}) } : undefined
     writeJSON(sessionPath(session), { ...s, dialogueMode })
     return { session, on, ...(dialogueMode ? { dialogueMode } : {}) }
   })
   if (!on) failQueued(session, '받는 세션의 대화 모드가 꺼져 전달하지 않았습니다.')
-  return { ...result, note: on
+  return { ...result, note: on && notify
+    ? '알림 모드입니다. 기다리지 않고 응답을 끝내도 됩니다. 메시지가 오면 이 대화가 깨어납니다. 메시지가 없으면 모델을 부르지 않습니다.'
+    : on
     ? '이 세션은 응답이 끝날 때마다 최대 ' + waitSeconds + '초 동안 상대의 요청·회신을 기다렸다가 같은 대화에서 이어 갑니다. 기다리는 동안 앱은 작업 중으로 보입니다.'
     : '대화 모드를 껐습니다. 아직 전달하지 않은 요청은 failed 로 적었습니다.' }
 }
 
+
+export interface CodexTurn { idle: boolean; aborted: boolean; startedAt?: string; lastMessage?: string }
+/** Codex 차례의 끝은 rollout 기록으로 판정한다. 앱 환경에 따라 Stop 훅이 신뢰 확인 대기로 돌지 않을 수 있다
+ * (2026-11-08 실측: UserPromptSubmit 만 돌았다). 못 읽으면 null 이며, 이때는 아무것도 전달하지 않는다. */
+export function codexTurn(transcript: string | undefined): CodexTurn | null {
+  if (!transcript) return null
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(transcript, 'r')
+    const size = fs.fstatSync(fd).size
+    const length = Math.min(size, 256 * 1024)
+    const buffer = Buffer.alloc(length)
+    fs.readSync(fd, buffer, 0, length, size - length)
+    let end: CodexTurn | null = null
+    for (const line of buffer.toString('utf8').split('\n').reverse()) {
+      if (!line.includes('"event_msg"')) continue
+      let entry: { timestamp?: string; payload?: { type?: string; last_agent_message?: unknown } }
+      try { entry = JSON.parse(line) } catch { continue }
+      const type = entry.payload?.type
+      if (type === 'task_started') return end ? { ...end, startedAt: entry.timestamp } : { idle: false, aborted: false, startedAt: entry.timestamp }
+      if (!end && (type === 'task_complete' || type === 'turn_aborted')) {
+        const message = entry.payload?.last_agent_message
+        end = { idle: true, aborted: type === 'turn_aborted', ...(typeof message === 'string' ? { lastMessage: message } : {}) }
+      }
+    }
+    return end
+  } catch { return null } finally { if (fd !== undefined) fs.closeSync(fd) }
+}
+
+export type CodexQueue = (thread: string, message: string) => { ok: boolean; error?: string }
+/** 공식 명령 codex queue 는 열린 Codex 앱이 받아 같은 스레드에서 실행한다. 인자 배열로 넘겨 셸 해석을 피한다. */
+export function codexQueue(thread: string, message: string) {
+  const r = spawnSync(process.env.AXMAP_CODEX_BIN || 'codex', ['queue', '--thread', thread, '--message', message],
+    { encoding: 'utf8', windowsHide: true, timeout: 30000 })
+  return r.status === 0 ? { ok: true } : { ok: false, error: (r.error?.message || r.stderr || `exit ${r.status}`).trim() }
+}
+
+function hookSessions(): SessionRecord[] {
+  if (!fs.existsSync(sessionsDir())) return []
+  return fs.readdirSync(sessionsDir()).filter(n => n.endsWith('.json'))
+    .flatMap(n => { try { return [readJSON<SessionRecord>(path.join(sessionsDir(), n))] } catch { return [] } })
+}
+
+/** 이 저장소의 알림 모드 Codex 앱 세션을 한 번 살핀다: 끝난 요청의 답을 적고, 쉬고 있으면 다음 것을 넣는다. */
+export function pumpCodexSessions(cwd: string, { now = Date.now, queue = codexQueue }: { now?: () => number; queue?: CodexQueue } = {}) {
+  const repo = repoKey(cwd)
+  for (const s of hookSessions()) {
+    if (s.transport !== 'hook' || s.provider !== 'codex' || !s.repos?.includes(repo) || !s.dialogueMode?.notify) continue
+    const turn = codexTurn(s.transcript)
+    if (!turn) continue
+    const inFlight = listRequests().find(r => r.to === s.id && r.state === 'submitted')
+    if (inFlight) {
+      // 요청을 넣은 뒤 시작한 차례만 그 요청의 답이다. 이전 차례의 끝을 답으로 읽지 않는다.
+      if (!turn.idle || !turn.startedAt || !inFlight.deliveredAt || turn.startedAt < inFlight.deliveredAt) continue
+      withRepoLock(queueLock(s.id), () => writeJSON(requestPath(inFlight.id), turn.aborted
+        ? { ...inFlight, state: 'failed', error: '사용자가 이 차례를 중단했습니다.' }
+        : typeof turn.lastMessage === 'string'
+          ? { ...inFlight, state: 'completed', result: turn.lastMessage, completedAt: new Date(now()).toISOString() }
+          : { ...inFlight, state: 'unknown', error: '차례는 끝났지만 마지막 답을 읽지 못했습니다.' }))
+    }
+    const pushedAt = s.lastPushAt ? Date.parse(s.lastPushAt) : 0
+    const started = turn.startedAt ? Date.parse(turn.startedAt) : 0
+    if (!turn.idle || (started < pushedAt && now() - pushedAt < PUSH_START_GRACE_MS)) continue
+    if (!modeActive(s.dialogueMode, now())) continue
+    const delivery = takeDelivery(s.id, now)
+    if (!delivery) continue
+    withRepoLock(queueLock(s.id), () => writeJSON(sessionPath(s.id), { ...readJSON<SessionRecord>(sessionPath(s.id)), lastPushAt: new Date(now()).toISOString() }))
+    const sent = queue(s.conversationId!, delivery.text)
+    if (!sent.ok && delivery.requestId) {
+      // 접수 여부를 알 수 없다. 두 번 실행되지 않도록 다시 보내지 않는다.
+      const id = delivery.requestId
+      withRepoLock(queueLock(s.id), () => writeJSON(requestPath(id), { ...readJSON<RequestRecord>(requestPath(id)), state: 'unknown', error: `codex queue 실패: ${sent.error}` }))
+    }
+  }
+}
+
+export interface ListenOptions { session: string; cwd: string; onDelivery: (text: string) => void; intervalMs?: number; queue?: CodexQueue; shouldStop?: () => boolean }
+/** 메시지를 기다리는 로컬 프로세스. 파일만 살피므로 빈 대기열에서는 모델을 부르지 않는다.
+ * Claude 세션은 이 프로세스의 출력을 Monitor 로 받아 깨어나고, Codex 세션에는 codex queue 로 넣는다. */
+export async function listenAppSession({ session, cwd, onDelivery, intervalMs = 300, queue, shouldStop = () => false }: ListenOptions): Promise<string> {
+  if (!UUID.test(session || '') || !fs.existsSync(sessionPath(session))) throw new Error('등록되지 않은 세션입니다.')
+  for (;;) {
+    if (shouldStop()) return '중단했습니다.'
+    pumpCodexSessions(cwd, queue ? { queue } : {})
+    const s = readJSON<SessionRecord>(sessionPath(session))
+    if (s.state === 'closed') return '세션이 종료됐습니다.'
+    if (!modeActive(s.dialogueMode)) return '대화 모드가 끝났습니다.'
+    if (s.provider !== 'codex' && s.state === 'idle') {
+      const delivery = takeDelivery(session, Date.now)
+      if (delivery) onDelivery(delivery.text)
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+}
+
+/** 시작 직후에는 같은 Stop 의 동기 훅이 아직 idle 을 적지 않았을 수 있다. */
+const WATCH_IDLE_GRACE_MS = 10000
+export interface WatchOptions { intervalMs?: number; queue?: CodexQueue; now?: () => number }
+/** Claude 의 Stop 훅(asyncRewake)이 백그라운드로 부른다. 전달할 글을 돌려주면 호출자가 종료 코드 2 로 대화를 깨운다.
+ * 새 Stop 이 오면 새 감시가 자리를 넘겨받고, 이전 감시는 조용히 끝난다. 빈 대기열에서는 모델을 부르지 않는다. */
+export async function watchAppSession(input: HookInput, provider: string | undefined, { intervalMs = 300, queue, now = Date.now }: WatchOptions = {}): Promise<string | null> {
+  if (provider !== 'claude') return null
+  const who = hookIdentity(input, provider)
+  if (!who) return null
+  const id = appSessionId(provider, who.conversationId)
+  if (!fs.existsSync(sessionPath(id))) return null
+  const nonce = randomUUID()
+  const armed = withRepoLock(queueLock(id), () => {
+    const s = readJSON<SessionRecord>(sessionPath(id))
+    if (s.transport !== 'hook' || !s.dialogueMode?.notify || !modeActive(s.dialogueMode, now())) return false
+    writeJSON(sessionPath(id), { ...s, watcher: nonce })
+    return true
+  })
+  if (!armed) return null
+  const started = now()
+  let seenIdle = false
+  for (;;) {
+    pumpCodexSessions(who.cwd, { now, ...(queue ? { queue } : {}) })
+    const s = readJSON<SessionRecord>(sessionPath(id))
+    if (s.watcher !== nonce || s.state === 'closed' || !modeActive(s.dialogueMode, now())) return null
+    if (s.state === 'idle') {
+      seenIdle = true
+      const delivery = takeDelivery(id, now)
+      if (delivery) return delivery.text
+    } else if (seenIdle || now() - started > WATCH_IDLE_GRACE_MS) return null
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+}

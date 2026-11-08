@@ -9,7 +9,7 @@ import { sendTerminal } from '../src/terminal-bridge.mjs'
 import { sessionStatus, formatSessionStatus } from '../src/session-status.mjs'
 import { attachConsole } from '../src/external-console.mjs'
 import { postMail, collectMail, flushMail } from '../src/session-mailbox.mjs'
-import { setDialogueMode } from '../src/app-session.mjs'
+import { setDialogueMode, listenAppSession } from '../src/app-session.mjs'
 
 // Windows PowerShell 5.1 은 파이프로 넘기는 글 앞에 BOM 을 붙이고 줄바꿈을 CRLF 로 보낸다(2026-11-05 실측).
 // 그대로 두면 상대 AI 의 프롬프트 첫 글자에 보이지 않는 문자가 섞인다.
@@ -85,11 +85,17 @@ try {
       break
     }
     case 'sessions': output(sessions(process.cwd())); break
+    case 'listen': {
+      // 표준 출력은 Monitor 가 알림으로 받는다. 전달할 메시지 말고는 아무것도 쓰지 않는다.
+      const reason = await listenAppSession({ session: option('session'), cwd: process.cwd(), onDelivery: text => process.stdout.write(`${text}\n`) })
+      process.stderr.write(`${reason}\n`)
+      break
+    }
     case 'mode': {
       const on = args.includes('--on'), off = args.includes('--off')
       if (on === off) throw new Error('bridge mode --session <UUID> --on|--off 중 하나를 주세요.')
       const num = name => option(name) === undefined ? undefined : Number(option(name))
-      output(setDialogueMode({ session: option('session'), cwd: process.cwd(), on,
+      output(setDialogueMode({ session: option('session'), cwd: process.cwd(), on, notify: args.includes('--notify'),
         ...[['minutes', num('minutes')], ['maxTurns', num('max-turns')], ['waitSeconds', num('wait-seconds')]].reduce((o, [k, v]) => v === undefined ? o : { ...o, [k]: v }, {}) }))
       break
     }
@@ -144,7 +150,9 @@ axmap bridge mailbox --to <UUID> [--all]
     읽기만 합니다. --take --at checkpoint로 작업 경계에서 묶음 회수 (모델 호출 없음).
 axmap bridge flush --to <UUID> --at task-complete|test-complete|experiment-complete|checkpoint
     필요할 때만 idle 수신자에게 큐를 한 요청으로 전달. 자동 감시·중단·재전송 없음.
-axmap bridge mode --session <앱 세션 UUID> --on|--off [--minutes 30] [--max-turns 8] [--wait-seconds 540]
+axmap bridge mode --session <앱 세션 UUID> --on|--off [--notify] [--minutes 30] [--max-turns 8] [--wait-seconds 540]
+axmap bridge listen --session <앱 세션 UUID>
+    알림 모드 세션의 메시지를 토큰 없이 기다렸다가 전달한다. Claude 세션은 Monitor 로 실행한다.
     앱(Claude 앱·Codex 앱)·codex 세션의 대화 모드. 켜면 응답이 끝날 때 상대 요청·회신을 기다렸다가 같은 대화에서 이어 갑니다.
 axmap bridge send ... --from-session <내 세션 UUID>   상대가 앱 세션이면 그 답이 내 세션으로 돌아옵니다(내가 대화 모드일 때)
 axmap bridge result <요청 UUID> [--wait-ms 30000]    제출/완료/불명 상태와 결과. 대기 중 모델 호출 없음

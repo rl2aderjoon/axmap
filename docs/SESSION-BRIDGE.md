@@ -271,6 +271,28 @@ Windows 홈 경로에 공백이 있는 경우의 훅 실행도 현재 제한 사
 명시적인 실행 턴이 필요한 작업용이다. 긴급 사유·만료·중복 방지·묶음 전송 및 강제 중단
 미지원 범위는 [SESSION-MAILBOX.md](SESSION-MAILBOX.md)에 정리했다.
 
+## 2026-11-08: 앱 세션 알림 모드 (개발 중, 실제 앱 왕복 확인)
+
+결정은 [D33](DECISIONS.md)이다. 앱이 작업 중으로 묶이지 않고, 메시지가 오면 쉬던 대화가 깨어난다.
+
+1. 각 세션에서 `ax_dialogue_mode(session=<내 ID>, on=true, notify=true)`를 켠다.
+2. Claude 세션은 설치된 Stop 훅(`asyncRewake`)이 응답이 끝날 때마다 감시를 시작한다. 훅이 없는 환경이나 Codex끼리의 조합은 `axmap bridge listen --session <내 ID>`를 돌린다(Monitor로 돌리면 30분마다 다시 켠다).
+3. 어느 쪽이든 `ax_dispatch(to=<상대 ID>, from_session=<내 ID>, prompt=...)`로 보내고 응답을 끝낸다.
+
+제한:
+
+- 감시나 listen이 하나도 돌지 않으면 쉬는 세션에 전달되지 않는다. Claude가 작업 중이면 그 세션의 감시가 없으므로, Codex로 보낸 요청은 Claude의 응답이 끝난 뒤 넘어간다.
+- Codex 앱이 열려 있어야 `codex queue`가 바로 실행된다. 앱이 닫혀 있을 때의 동작은 확인하지 못했다.
+- Claude 앱에서 사용자가 중단한 차례는 Stop 훅이 돌지 않으면 작업 중으로 남아 전달이 미뤄질 수 있다.
+- 수 시간 대기한 `asyncRewake` 감시와 앱 종료 시 프로세스 정리는 확인하지 못했다. 감시는 세션 종료와 대화 모드 만료에 끝난다.
+
+실측(2026-11-08, Windows 11, Claude 데스크톱 앱 Code 탭 + Codex 데스크톱 앱 GPT-6.1 Sol, axMap 저장소, 소스의 listen):
+
+- Claude → 쉬는 Codex: 요청 `023d57f6…`, 접수 후 약 0.3초에 전달, 약 13초 뒤 답 `1.11.1` 기록. 회신은 Claude의 Stop 훅으로 돌아왔다.
+- Codex → 쉬는 Claude: 요청 `a4c2c5e9…`. Codex가 먼저 보냈고 쉬고 있던 Claude 대화가 Monitor 알림으로 깨어나 사람 입력 없이 답했다.
+- `codex queue`로 넣은 차례는 Codex 앱 화면의 같은 스레드에 나타났다.
+- Stop 훅 감시(`asyncRewake`, Monitor·listen 없이, 소스의 hook-watch를 프로젝트 설정으로 연결): Codex가 보낸 요청 `767a1b18…`이 접수 0.3초 뒤 쉬던 Claude 세션을 깨웠고 약 5초 뒤 답 `watch-ok`가 기록됐다. 회신은 Claude 쪽 감시가 Codex에 넣어 Codex가 사람 입력 없이 `received`로 답했다.
+
 ## 2026-11-05: 앱 세션의 대화 모드 (개발 중, 실제 앱 왕복 확인)
 
 Claude 앱(Code 탭)·Codex 앱, axMap 래퍼 없이 연 `codex`처럼 콘솔 창이 없는 세션은

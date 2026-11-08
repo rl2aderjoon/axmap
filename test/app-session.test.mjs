@@ -15,7 +15,7 @@ fs.mkdirSync(repo)
 const git = (...args) => cp.execFileSync('git', args, { cwd: repo, encoding: 'utf8' })
 git('init', '-q'); git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
 
-const { handleAppHook, appSessionId, setDialogueMode } = await import('../src/app-session.mjs')
+const { handleAppHook, appSessionId, setDialogueMode, codexTurn, pumpCodexSessions, listenAppSession, watchAppSession } = await import('../src/app-session.mjs')
 const { dispatchRequest, requestResult, sessions } = await import('../src/bridge.mjs')
 const runner = path.resolve('tools/run.mjs')
 
@@ -187,5 +187,110 @@ test('hook install gives Stop the provider default 600 seconds and keeps other e
       assert.equal(saved.hooks.Stop.at(-1).hooks[0].timeout, 600)
       assert.equal(saved.hooks.SessionStart.at(-1).hooks[0].timeout, 10)
     }
+  } finally { fs.rmSync(home, { recursive: true, force: true }) }
+})
+
+const rollout = (file, ...events) => fs.appendFileSync(file, events.map(([type, timestamp, extra]) =>
+  JSON.stringify({ timestamp, type: 'event_msg', payload: { type, ...extra } })).join('\n') + '\n')
+function notifyPair() {
+  const cid = randomUUID(), xid = randomUUID()
+  const clog = path.join(process.env.AXMAP_CLAUDE_HOME, 'projects', 'repo', `${cid}.jsonl`)
+  const xlog = path.join(root, 'codex', 'sessions', `rollout-2026-11-08T00-00-00-${xid}.jsonl`)
+  fs.writeFileSync(clog, ''); fs.writeFileSync(xlog, '')
+  const cin = { session_id: cid, transcript_path: clog, cwd: repo }, xin = { session_id: xid, transcript_path: xlog, cwd: repo }
+  handleAppHook(cin, 'SessionStart', 'claude'); handleAppHook(xin, 'SessionStart', 'codex')
+  const c = appSessionId('claude', cid), x = appSessionId('codex', xid)
+  for (const session of [c, x]) setDialogueMode({ session, cwd: repo, on: true, notify: true })
+  return { c, x, xid, xlog, cin }
+}
+
+test('codexTurn 은 마지막 차례의 시작·끝을 읽고 못 읽으면 null 이다', () => {
+  const { xlog } = notifyPair()
+  assert.equal(codexTurn(path.join(root, 'missing.jsonl')), null)
+  rollout(xlog, ['task_started', '2026-11-08T00:00:01.000Z'])
+  assert.equal(codexTurn(xlog).idle, false)
+  rollout(xlog, ['task_complete', '2026-11-08T00:00:02.000Z', { last_agent_message: 'hi' }])
+  assert.deepEqual(codexTurn(xlog), { idle: true, aborted: false, lastMessage: 'hi', startedAt: '2026-11-08T00:00:01.000Z' })
+})
+
+test('알림 모드: 쉬는 Codex 에 넣고, 넣은 뒤 시작한 차례의 끝만 답으로 적는다', () => {
+  const { c, x, xid, xlog } = notifyPair()
+  rollout(xlog, ['task_started', '2026-11-08T00:00:01.000Z'], ['task_complete', '2026-11-08T00:00:02.000Z', { last_agent_message: 'old' }])
+  const sent = [], queue = (thread, message) => { sent.push({ thread, message }); return { ok: true } }
+  const first = dispatchRequest({ to: x, from: 'test', fromSession: c, prompt: 'one', cwd: repo })
+  const second = dispatchRequest({ to: x, from: 'test', fromSession: c, prompt: 'two', cwd: repo })
+  pumpCodexSessions(repo, { queue })
+  assert.equal(sent.length, 1); assert.equal(sent[0].thread, xid); assert.match(sent[0].message, /one/)
+  assert.equal(requestResult(first.id, repo).state, 'submitted')
+  pumpCodexSessions(repo, { queue })
+  assert.equal(sent.length, 1, '이전 차례의 끝으로 다음 것을 넣지 않는다')
+  assert.equal(requestResult(first.id, repo).state, 'submitted')
+  const start = new Date(Date.now() + 1000).toISOString(), end = new Date(Date.now() + 2000).toISOString()
+  rollout(xlog, ['task_started', start], ['task_complete', end, { last_agent_message: 'answer' }])
+  pumpCodexSessions(repo, { queue })
+  assert.equal(requestResult(first.id, repo).result, 'answer')
+  assert.equal(sent.length, 2); assert.match(sent[1].message, /two/)
+  assert.equal(requestResult(second.id, repo).state, 'submitted')
+})
+
+test('알림 모드: codex queue 가 실패하면 unknown 으로 두고 다시 보내지 않는다', () => {
+  const { c, x, xlog } = notifyPair()
+  rollout(xlog, ['task_started', '2026-11-08T00:00:01.000Z'], ['task_complete', '2026-11-08T00:00:02.000Z', {}])
+  let calls = 0
+  const r = dispatchRequest({ to: x, from: 'test', fromSession: c, prompt: 'x', cwd: repo })
+  const queue = () => { calls++; return { ok: false, error: 'boom' } }
+  pumpCodexSessions(repo, { queue }); pumpCodexSessions(repo, { queue })
+  assert.equal(calls, 1); assert.equal(requestResult(r.id, repo).state, 'unknown')
+})
+
+test('listen: 쉬는 Claude 세션에 온 요청을 한 번만 내보내고 작업 중에는 내보내지 않는다', async () => {
+  const { c, x, cin } = notifyPair()
+  handleAppHook(cin, 'UserPromptSubmit', 'claude')
+  const r = dispatchRequest({ to: c, from: 'test', fromSession: x, prompt: 'ping', cwd: repo })
+  const out = []
+  let polls = 0
+  await listenAppSession({ session: c, cwd: repo, intervalMs: 1, queue: () => ({ ok: true }), onDelivery: t => out.push(t), shouldStop: () => ++polls > 3 })
+  assert.equal(out.length, 0)
+  assert.equal(handleAppHook(cin, 'Stop', 'claude').decision, 'block', '응답 끝에 이미 와 있으면 바로 이어 간다')
+  assert.equal(requestResult(r.id, repo).state, 'submitted')
+  const again = dispatchRequest({ to: c, from: 'test', fromSession: x, prompt: 'pong', cwd: repo })
+  handleAppHook({ ...cin, last_assistant_message: 'done' }, 'Stop', 'claude')
+  polls = 0
+  await listenAppSession({ session: c, cwd: repo, intervalMs: 1, queue: () => ({ ok: true }), onDelivery: t => out.push(t), shouldStop: () => ++polls > 3 })
+  assert.equal(out.length, 0, 'Stop 이 이미 꺼냈으면 listen 은 두 번 내보내지 않는다')
+  assert.equal(requestResult(again.id, repo).state, 'submitted')
+})
+
+test('응답 끝 감시: 쉬는 Claude 에 온 요청을 돌려주고, 알림 모드가 아니면 바로 끝난다', async () => {
+  const { c, x, cin } = notifyPair()
+  handleAppHook(cin, 'Stop', 'claude')
+  const waiting = watchAppSession(cin, 'claude', { intervalMs: 5, queue: () => ({ ok: true }) })
+  const r = dispatchRequest({ to: c, from: 'test', fromSession: x, prompt: 'wake me', cwd: repo })
+  assert.match(await waiting, /wake me/)
+  assert.equal(requestResult(r.id, repo).state, 'submitted')
+  setDialogueMode({ session: c, cwd: repo, on: false })
+  assert.equal(await watchAppSession(cin, 'claude', { intervalMs: 5 }), null)
+})
+
+test('응답 끝 감시: 새 감시가 자리를 넘겨받거나 사용자가 입력하면 조용히 끝난다', async () => {
+  const { cin } = notifyPair()
+  handleAppHook(cin, 'Stop', 'claude')
+  const options = { intervalMs: 5, queue: () => ({ ok: true }) }
+  const old = watchAppSession(cin, 'claude', options)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const latest = watchAppSession(cin, 'claude', options)
+  assert.equal(await old, null)
+  handleAppHook(cin, 'UserPromptSubmit', 'claude')
+  assert.equal(await latest, null)
+})
+
+test('훅 설치: Claude 의 Stop 에만 깨우기 감시가 들어가고 다시 설치해도 하나다', async () => {
+  const { installTerminalHooks } = await import('../src/terminal-bridge.mjs')
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'axmap-app-hooks-'))
+  try {
+    const watches = provider => JSON.parse(fs.readFileSync(installTerminalHooks(home, provider), 'utf8')).hooks.Stop.flatMap(g => g.hooks).filter(h => h.asyncRewake)
+    assert.equal(watches('claude').length, 1)
+    assert.match(watches('claude')[0].command, /hook-watch --provider claude/)
+    assert.equal(watches('codex').length, 0)
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 })
