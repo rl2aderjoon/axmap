@@ -10,6 +10,9 @@ import { sessionStatus, formatSessionStatus } from '../src/session-status.mjs'
 import { attachConsole } from '../src/external-console.mjs'
 import { postMail, collectMail, flushMail } from '../src/session-mailbox.mjs'
 import { setDialogueMode } from '../src/app-session.mjs'
+import { startNativeRelay } from '../src/app-native.mjs'
+import { repoKey } from '../src/bridge.mjs'
+import { replyAppRequest } from '../src/app-queue.mjs'
 
 // Windows PowerShell 5.1 은 파이프로 넘기는 글 앞에 BOM 을 붙이고 줄바꿈을 CRLF 로 보낸다(2026-11-05 실측).
 // 그대로 두면 상대 AI 의 프롬프트 첫 글자에 보이지 않는 문자가 섞인다.
@@ -20,7 +23,17 @@ const [command] = args
 const option = (name) => { const i = args.indexOf(`--${name}`); return i < 0 ? undefined : args[i + 1] }
 const output = (value) => console.log(JSON.stringify(value, null, 2))
 try {
+  if (option('cwd')) process.chdir(option('cwd'))
   switch (command) {
+    case 'reply': output(replyAppRequest({ id: option('request'), session: option('session'), cwd: process.cwd(), text: stdinText() })); break
+    case 'native': {
+      const relay = await startNativeRelay({ codex: option('codex'), claude: option('claude'),
+        repo: repoKey(process.cwd()), pipe: process.env.CODEX_APP_TOOLS_PIPE_PATH, onEvent: output })
+      output({ event: 'ready', id: relay.id, pid: process.pid })
+      const close = () => { relay.close(); process.exit(0) }
+      process.once('SIGINT', close); process.once('SIGTERM', close)
+      break
+    }
     case 'message': {
       const r = postMail({ to: option('to'), cwd: process.cwd(), text: stdinText(),
         priority: option('priority') || 'boundary', reason: option('reason'), topic: option('topic'), key: option('key'),
@@ -148,6 +161,7 @@ axmap bridge mode --session <앱 세션 UUID> --on|--off [--minutes 30] [--max-t
     앱(Claude 앱·Codex 앱)·codex 세션의 대화 모드. 켜면 응답이 끝날 때 상대 요청·회신을 기다렸다가 같은 대화에서 이어 갑니다.
 axmap bridge send ... --from-session <내 세션 UUID>   상대가 앱 세션이면 그 답이 내 세션으로 돌아옵니다(내가 대화 모드일 때)
 axmap bridge result <요청 UUID> [--wait-ms 30000]    제출/완료/불명 상태와 결과. 대기 중 모델 호출 없음
+axmap bridge reply --request <요청 UUID> --session <내 세션 UUID>  stdin 회신을 영속 저장. 마지막 답 자동 회수 없음
 관리형 stdio: Codex App Server / agy stream-json. PTY와 agentapi는 별도 실험 경로입니다.`)
       break
     default: throw new Error(`알 수 없는 bridge 명령: ${command}`)

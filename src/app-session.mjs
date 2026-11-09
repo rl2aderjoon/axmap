@@ -1,11 +1,13 @@
 // Generated from src/app-session.mts. Edit the .mts source and run npm run build.
 /** 앱 세션(Claude 데스크톱 앱의 Code 탭, Codex 앱, axMap 래퍼 없는 codex TUI)의 대화 모드.
  *
- * 이 세션들에는 axMap 이 글자를 대신 입력할 콘솔 창이 없다. 그래서 공급자 자신의 훅만 쓴다.
+ * 네이티브 로컬 중계는 idle에서 기존 수신 API로 전달하고 Stop 경계에서 미회신 요청을 안내한다.
+ * 네이티브 요청 완료는 요청 ID를 지정한 명시적 회신으로만 확정한다.
+ * 미연결 세션에는 공급자 자신의 훅을 사용하는 기존 대화 모드를 유지한다.
  * - 훅이 올 때마다 대화 ID 로 세션을 등록한다(transport: 'hook').
  * - 대화 모드가 켜진 세션은 응답이 끝날 때(Stop) 상대의 요청이나 회신을 로컬에서 기다린다.
  *   오면 공식 계약 {"decision":"block","reason":...} 으로 같은 대화를 이어 가게 한다.
- * - 쉬고 있는 앱을 밖에서 깨울 방법은 없다. 기다림이 끝난 세션은 사용자가 다음에 말을 걸 때까지 쉰다.
+ * - 훅 전용 경로에는 외부 재개 수단이 없다. 네이티브 경로는 이 긴 대기를 사용하지 않는다.
  * 기다리는 동안 모델을 부르지 않고, 새 모델 프로세스를 띄우지 않는다(D26). */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,6 +15,9 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { withRepoLock } from './repolock.mjs';
+import { hasRequestMarker, hasReplyMarker } from './app-language.mjs';
+import { nativeRequestText } from './app-language.mjs';
+import { pendingAppRequests } from './app-queue.mjs';
 import { bridgeHome, repoKey, readJSON, writeJSON } from './bridge.mjs';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /** 공급자 훅 제한 시간(600초, 두 공급자 문서의 기본값)보다 짧게 둔다. 훅이 강제 종료되면
@@ -164,7 +169,9 @@ export function handleAppHook(input, event, provider, options = {}) {
     });
     if (event === 'SessionEnd') {
         update(s => ({ ...s, state: 'closed', fullyIdle: false, dialogueMode: undefined }));
-        failQueued(id, '받는 세션이 종료돼 전달하지 않았습니다.');
+        // 앱을 닫아도 네이티브 큐는 재연결까지 보존한다.
+        if (!readJSON(sessionPath(id)).nativeRelay)
+            failQueued(id, '받는 세션이 종료돼 전달하지 않았습니다.');
         return {};
     }
     if (event === 'SessionStart' || event === 'UserPromptSubmit') {
@@ -176,9 +183,17 @@ export function handleAppHook(input, event, provider, options = {}) {
         update(s => ({ ...s, announced: true }));
         return { hookSpecificOutput: { hookEventName: event, additionalContext: announcement(id) } };
     }
-    // Stop: 방금 끝난 차례가 우리가 넣은 요청이었으면 그 답을 결과로 적는다.
-    const { next: session } = update(s => ({ ...s, state: 'idle', fullyIdle: true }));
+    // Stop: 네이티브 요청은 명시적 회신을 기다리고, 훅 전용 구형 경로만 마지막 답을 기록한다.
+    let pending;
+    const { next: session } = update(s => {
+        pending = s.nativeRelay ? pendingAppRequests(id).find(r => r.repo === repo) : undefined;
+        return { ...s, state: pending ? 'running' : 'idle', fullyIdle: !pending };
+    });
     completeInFlight(id, input, who.transcript);
+    // 네이티브 중계가 메시지 도착 때 기존 앱을 실행한다. Stop 훅을 대기시킬 필요가 없다.
+    if (session.nativeRelay)
+        return pending ? { decision: 'block', reason: nativeRequestText({ ...pending,
+                prompt: pending.prompt.length > 5000 ? `${pending.prompt.slice(0, 5000)}\n(전체 요청 본문은 ax_result(id="${pending.id}")로 확인하세요.)` : pending.prompt }) } : {};
     if (!modeActive(session.dialogueMode, now()))
         return {};
     const waitMs = Math.min(session.dialogueMode.waitSeconds, MAX_WAIT_SECONDS) * 1000;
@@ -203,8 +218,10 @@ function failQueued(id, reason) {
 function supersedeInFlight(id, prompt) {
     withRepoLock(queueLock(id), () => {
         for (const r of listRequests().filter(r => r.to === id && r.state === 'submitted')) {
+            if (r.nativeRelayId)
+                continue; // 사용자 입력과 협업 요청의 수명은 독립적이다.
             // Codex 는 이어 가기 문구를 새 프롬프트로 만들 수 있다. 그 문구에는 우리 표식이 있다.
-            if (prompt.includes(`[axMap request ${r.id}]`))
+            if (hasRequestMarker(prompt, r.id) || (r.nativeRelayId && hasReplyMarker(prompt)))
                 continue;
             writeJSON(requestPath(r.id), { ...r, state: 'superseded', error: '사용자 입력이 끼어들어 이 요청의 답을 확정할 수 없습니다.' });
         }
@@ -237,6 +254,11 @@ function lastClaudeAnswer(transcript) {
 function completeInFlight(id, input, transcript) {
     withRepoLock(queueLock(id), () => {
         for (const r of listRequests().filter(r => r.to === id && r.state === 'submitted')) {
+            if (r.nativeRelayId)
+                continue; // 마지막 답변은 회신이 아니다. ax_reply만 완료를 확정한다.
+            // 네이티브 수신은 원래 작업 도중에도 큐에 들어간다. 그 작업의 Stop을 요청 답으로 오인하지 않는다.
+            if (r.nativeRelayId && !nativeRequestAnswered(transcript, r.id))
+                continue;
             const answer = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : lastClaudeAnswer(transcript);
             writeJSON(requestPath(r.id), typeof answer === 'string'
                 ? { ...r, state: 'completed', result: answer, completedAt: new Date().toISOString() }
@@ -244,6 +266,41 @@ function completeInFlight(id, input, transcript) {
                 : { ...r, state: 'unknown', error: '응답이 끝났지만 마지막 답을 읽지 못했습니다.' });
         }
     });
+}
+function nativeRequestAnswered(transcript, requestId) {
+    if (!transcript)
+        return false;
+    try {
+        const lines = fs.readFileSync(transcript, 'utf8').split('\n').reverse();
+        let answered = false;
+        for (const line of lines) {
+            let entry;
+            try {
+                entry = JSON.parse(line);
+            }
+            catch {
+                continue;
+            }
+            const message = entry.type === 'response_item' ? entry.payload : entry.message;
+            const role = entry.type === 'response_item' ? message?.role : entry.type;
+            if (role === 'assistant') {
+                answered = true;
+                continue;
+            }
+            if (role !== 'user')
+                continue;
+            const content = message?.content;
+            const text = typeof content === 'string' ? content : Array.isArray(content)
+                ? content.filter((b) => b.type === 'text' || b.type === 'input_text').map((b) => b.text || '').join('\n') : '';
+            if (!text)
+                continue; // 도구 결과는 새 사용자 입력이 아니다.
+            if (hasReplyMarker(text))
+                continue; // 작업 도중 돌아온 회신은 원래 요청을 대체하지 않는다.
+            return answered && hasRequestMarker(text, requestId);
+        }
+    }
+    catch { /* 기록이 아직 없거나 읽을 수 없으면 완료를 확정하지 않는다. */ }
+    return false;
 }
 /** 다음에 이어 갈 내용 하나를 꺼낸다: 내게 온 요청(먼저 온 순서), 없으면 내가 보낸 요청의 회신. */
 function takeNext(id, now) {
@@ -279,16 +336,17 @@ function takeNext(id, now) {
         return text;
     });
 }
-/** 앱 세션으로 가는 요청은 언제나 대기열에 넣는다. 꺼내는 것은 받는 쪽의 Stop 훅뿐이다. */
+/** 앱 요청은 로컬 큐에 보관한다. 네이티브 중계 또는 기존 Stop 훅 중 하나만 전달한다. */
 export function enqueueAppRequest(s, request) {
-    if (s.state === 'closed')
+    if (s.state === 'closed' && !s.nativeRelay)
         throw new Error('받는 앱 세션이 종료됐습니다.');
-    if (!modeActive(s.dialogueMode))
+    if (!s.nativeRelay && !modeActive(s.dialogueMode))
         throw new Error('받는 앱 세션의 대화 모드가 꺼져 있습니다. 그 세션에서 ax_dialogue_mode 로 켠 뒤 보내세요.');
     return withRepoLock(queueLock(s.id), () => {
         if (listRequests().filter(r => r.to === s.id && r.state === 'queued').length >= 100)
             throw new Error('받는 앱 세션의 대기열이 가득 찼습니다.');
-        const record = { ...request, id: randomUUID(), createdAt: new Date().toISOString(), baseline: null, state: 'queued' };
+        const record = { ...request, id: randomUUID(), createdAt: new Date().toISOString(), baseline: null, state: 'queued',
+            ...(s.nativeRelay ? { nativeRelayId: s.nativeRelay.id, replyMode: 'explicit' } : {}) };
         writeJSON(requestPath(record.id), record);
         return record;
     });

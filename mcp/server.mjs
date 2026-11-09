@@ -227,7 +227,7 @@ const TTL = process.env.AXMAP_TTL ?? '45m'
  */
 const SESSION = process.env.AXMAP_SESSION || process.env.CLAUDE_CODE_SESSION_ID || `mcp-${process.pid}`
 
-const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dialogue_mode', 'ax_dispatch', 'ax_result', 'ax_chat', 'ax_dialogue', 'ax_chat_stop', 'ax_message', 'ax_mailbox', 'ax_mailbox_flush'])
+const BRIDGE_TOOLS = new Set(['ax_sessions', 'ax_dialogue_mode', 'ax_dispatch', 'ax_result', 'ax_reply', 'ax_chat', 'ax_dialogue', 'ax_chat_stop', 'ax_message', 'ax_mailbox', 'ax_mailbox_flush'])
 const PIPELINE_TOOLS = new Set(['ax_pipeline', 'ax_pipeline_state', 'ax_pipeline_watch'])
 const PIPELINE_URI = 'ui://axmap/pipeline/v1.html'
 const PIPELINE_MIME = 'text/html;profile=mcp-app'
@@ -525,6 +525,15 @@ const TOOLS = [
       minutes: { type: 'integer', minimum: 1, maximum: 240, description: '켜 둘 시간. 기본 30' },
       max_turns: { type: 'integer', minimum: 1, maximum: 50, description: '자동으로 이어 갈 최대 횟수. 기본 8 (Claude 기본 연속 이어 가기 한도와 같다)' },
     }, required: ['session', 'on'] },
+  },
+  {
+    name: 'ax_reply',
+    description: '작업 경계에서 받은 네이티브 앱 요청 ID를 지정해 회신을 영속 큐에 저장한다. 일반 마지막 답변은 자동 회신되지 않는다. 사용자 입력은 요청을 취소하지 않는다. 같은 본문 재접수는 멱등이며 다른 본문 덮어쓰기는 거절한다. 상대 앱이 작업 중이면 완료 회신을 보존하고 idle에서 기존 대화를 이어 간다.',
+    inputSchema: { type: 'object', properties: {
+      id: { type: 'string', description: '받은 협업 요청 UUID' },
+      session: { type: 'string', description: '요청을 받은 내 axMap 세션 UUID' },
+      text: { type: 'string', description: '해당 요청의 회신 본문' },
+    }, required: ['id', 'session', 'text'] },
   },
   {
     name: 'ax_result',
@@ -986,6 +995,7 @@ function dispatch(name, args = {}) {
     case 'ax_dialogue_mode': return bridge(['mode', '--session', String(args.session), args.on ? '--on' : '--off',
       ...[['minutes', args.minutes], ['max-turns', args.max_turns]].flatMap(([k, v]) => v === undefined ? [] : [`--${k}`, String(v)])])
     case 'ax_result': return bridge(['result', args.id, '--wait-ms', String(args.wait_ms ?? 0)])
+    case 'ax_reply': return bridge(['reply', '--request', args.id, '--session', args.session], args.text)
     case 'ax_chat': return bridge(['chat', '--background', '--left', args.left, '--right', args.right,
       ...['maxTurns', 'maxTokens', 'maxMessageChars'].flatMap(key => args[key] === undefined ? [] :
         [`--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, String(args[key])])], args.prompt)

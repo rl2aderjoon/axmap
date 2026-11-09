@@ -50,6 +50,8 @@ export interface SessionRecord {
   closedReason?: string
   /** transport 'hook' 만: 대화 모드와 세션 ID 안내 여부 */
   dialogueMode?: DialogueMode
+  /** 기존 앱의 네이티브 수신 경로에 연결한 로컬 중계. 모델 세션이 아니다. */
+  nativeRelay?: { id: string; pid: number }
   announced?: boolean
 }
 export type PublicSession = Pick<SessionRecord, 'id' | 'provider' | 'workspaces' | 'model' | 'transport' |
@@ -79,6 +81,10 @@ export interface RequestRecord {
   fromSession?: string
   deliveredAt?: string
   returnedAt?: string
+  /** 이 요청을 접수한 네이티브 중계. 재시작 뒤 이전 불명 전송을 재실행하지 않는다. */
+  nativeRelayId?: string
+  /** 네이티브 큐는 일반 마지막 답변을 회수하지 않고 요청 ID별 명시적 회신만 받는다. */
+  replyMode?: 'explicit'
 }
 export interface DispatchOptions { to: string; prompt: string; cwd: string; from?: string; fromSession?: string; dialogueId?: string | null; queueIfBusy?: boolean }
 export interface HookInput {
