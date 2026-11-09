@@ -52,8 +52,8 @@ export function formatSessionStatus(listed: readonly SessionSnapshot[]): string 
   return ['axMap 세션 상태', ...listed.map(s => {
     const usage = s.usage?.totalTokens == null ? '미확인' : `${s.usage.totalTokens}${s.maxTokens ? ` / ${s.maxTokens}` : ''}`
     const m = s.dialogueMode
-    const mode = s.transport !== 'hook' ? '' : `\n  앱 세션 · 대화 모드 ${m && Date.parse(m.until) > Date.now() && m.used < m.maxTurns
-      ? `켜짐 (이어 가기 ${m.used}/${m.maxTurns}, ${m.until}까지)` : '꺼짐'}`
+    const mode = s.transport !== 'hook' ? '' : `\n  앱 세션 · 대화 모드 ${m && Date.parse(m.until) > Date.now() && (m.maxTurns === undefined || m.used < m.maxTurns)
+      ? `켜짐 (이어 가기 ${m.used}/${m.maxTurns ?? '제한 없음'}, ${m.until}까지)` : '꺼짐'}`
     return `${safe(s.provider)}  ${safe(s.id)}\n  ${connections[s.connection] || '상태 미확인'} · ${labels[s.state] || '상태 미확인'}${s.role ? ` · ${safe(s.role)}` : ''}${mode}\n  확인된 누적 처리 토큰: ${usage}`
   })].join('\n')
 }

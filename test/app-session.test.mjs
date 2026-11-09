@@ -294,3 +294,25 @@ test('훅 설치: Claude 의 Stop 에만 깨우기 감시가 들어가고 다시
     assert.equal(watches('codex').length, 0)
   } finally { fs.rmSync(home, { recursive: true, force: true }) }
 })
+
+test('codexCommand 는 Windows npm 설치본을 셸 없이 Node 로 실행하고 지정 경로를 우선한다', async () => {
+  const { codexCommand } = await import('../src/app-session.mjs')
+  const npm = String.raw`C:\Users\u\AppData\Roaming\npm`
+  const script = String.raw`${npm}\node_modules\@openai\codex\bin\codex.js`
+  const other = String.raw`C:\x`
+  const bin = String.raw`C:\c.exe`
+  assert.deepEqual(codexCommand({ PATH: `${other};${npm}` }, 'win32', p => p === script), [process.execPath, script])
+  assert.deepEqual(codexCommand({ Path: npm }, 'win32', p => p === script), [process.execPath, script])
+  assert.deepEqual(codexCommand({ PATH: npm, AXMAP_CODEX_BIN: bin }, 'win32', p => p === script), [bin])
+  assert.deepEqual(codexCommand({ PATH: other }, 'win32', () => false), ['codex'])
+  assert.deepEqual(codexCommand({ PATH: '/usr/bin' }, 'linux', () => true), ['codex'])
+})
+
+test('대화 모드 이어 가기는 기본 상한이 없고 지정하면 그 횟수까지만 켜진다', async () => {
+  const { modeActive } = await import('../src/app-session.mjs')
+  const until = new Date(Date.now() + 60000).toISOString()
+  assert.equal(modeActive({ until, used: 9999, waitSeconds: 0, notify: true }), true)
+  assert.equal(modeActive({ until, maxTurns: 2, used: 1, waitSeconds: 0 }), true)
+  assert.equal(modeActive({ until, maxTurns: 2, used: 2, waitSeconds: 0 }), false)
+  assert.equal(modeActive({ until: new Date(Date.now() - 1000).toISOString(), used: 0, waitSeconds: 0 }), false)
+})

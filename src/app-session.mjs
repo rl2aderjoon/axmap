@@ -18,14 +18,12 @@ const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /** 공급자 훅 제한 시간(600초, 두 공급자 문서의 기본값)보다 짧게 둔다. 훅이 강제 종료되면
  * 이미 꺼낸 요청을 전달했는지 알 수 없게 되므로, 우리가 먼저 빈손으로 끝낸다. */
 export const MAX_WAIT_SECONDS = 540;
-/** Claude Code 는 사용자 입력 없이 Stop 훅으로 이어 가는 것을 기본 8회에서 끊는다
- * (CLAUDE_CODE_STOP_HOOK_BLOCK_CAP). 기본값을 그보다 크게 잡으면 끝이 우리 한도가 아니라 공급자 한도가 된다. */
-const DEFAULT_MAX_TURNS = 8;
+/** 이어 가기 횟수의 기본은 상한 없음이다(사용자 결정, 2026-11-09). 상한은 사람이 명령으로 정할 때만 건다.
+ * 응답 끝 훅으로 기다리는 일반 대화 모드는 공급자 자체 한도(Claude Code CLAUDE_CODE_STOP_HOOK_BLOCK_CAP, 기본 8회)에 여전히 걸린다. */
 /** Claude 는 훅이 넣는 문자열을 1만 자에서 자른다. 머리말을 붙일 자리를 남긴다. */
 const MAX_REPLY_CHARS = 8000;
-/** 알림 모드는 사람 없이 오가므로 기본 상한을 둔다. 한 번 켜면 한 시간 작업을 덮고, 왕복이 번지면 20회에서 멈춘다. */
+/** 알림 모드는 기본 시간 동안 켜 둔다. 한 번 켜면 한 시간 작업을 덮고, 왕복이 번지면 20회에서 멈춘다. */
 const NOTIFY_MINUTES = 60;
-const NOTIFY_TURNS = 20;
 /** codex queue 는 접수와 차례 시작 사이에 수 초가 걸린다(2026-11-08 Codex 앱 실측 약 9초).
  * 시작을 못 본 채 이 시간이 지나면 전달이 사라진 것으로 보고 다음 것을 막지 않는다. */
 const PUSH_START_GRACE_MS = 120000;
@@ -132,7 +130,7 @@ function listRequests() {
     } });
 }
 export function modeActive(mode, now = Date.now()) {
-    return !!mode && Date.parse(mode.until) > now && mode.used < mode.maxTurns;
+    return !!mode && Date.parse(mode.until) > now && (mode.maxTurns === undefined || mode.used < mode.maxTurns);
 }
 /** 이 저장소가 axMap 을 쓰는지. 안 쓰는 저장소의 대화에는 세션 ID 안내를 넣지 않는다(토큰 낭비). */
 function usesAxmap(cwd) {
@@ -259,7 +257,7 @@ function takeDelivery(id, now) {
         if (!modeActive(s.dialogueMode, now()))
             return null;
         const all = listRequests().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        const remaining = s.dialogueMode.maxTurns - s.dialogueMode.used - 1;
+        const remaining = s.dialogueMode.maxTurns === undefined ? '제한 없음' : `${s.dialogueMode.maxTurns - s.dialogueMode.used - 1}회`;
         const request = all.find(r => r.to === id && r.state === 'queued');
         const reply = request ? undefined : all.find(r => r.fromSession === id && !r.returnedAt &&
             ['completed', 'failed', 'superseded', 'unknown'].includes(r.state));
@@ -271,7 +269,7 @@ function takeDelivery(id, now) {
             text = `[axMap request ${request.id}]\n요청자: ${request.fromSession ? `세션 ${request.fromSession}` : request.from}\n${request.prompt}\n\n` +
                 `— axMap 대화 모드: 이 요청에 대한 마지막 답변이 그대로 요청자에게 전달됩니다.` +
                 (request.fromSession ? ` 답과 별개로 상대에게 새로 맡길 일이 있을 때만 ax_dispatch(to="${request.fromSession}", from_session="${id}")를 쓰세요.` : '') +
-                ` 남은 자동 이어 가기 ${remaining}회.`;
+                ` 남은 자동 이어 가기 ${remaining}.`;
         }
         else {
             const r = reply;
@@ -300,15 +298,17 @@ export function enqueueAppRequest(s, request) {
         return record;
     });
 }
-export function setDialogueMode({ session, cwd, on, notify = false, minutes = notify ? NOTIFY_MINUTES : 30, maxTurns = notify ? NOTIFY_TURNS : DEFAULT_MAX_TURNS, waitSeconds: askedWait = MAX_WAIT_SECONDS }) {
+export function setDialogueMode({ session, cwd, on, notify = false, minutes = notify ? NOTIFY_MINUTES : 30, maxTurns, waitSeconds: askedWait = MAX_WAIT_SECONDS }) {
     // 알림 모드의 Stop 훅은 기다리지 않는다. 쉬는 세션은 listen 이 깨운다.
     const waitSeconds = notify ? 0 : askedWait;
     if (!UUID.test(session || ''))
         throw new Error('세션 ID는 UUID여야 합니다.');
-    for (const [name, value, max] of [['minutes', minutes, 240], ['maxTurns', maxTurns, 50], ...(notify ? [] : [['waitSeconds', waitSeconds, MAX_WAIT_SECONDS]])]) {
+    for (const [name, value, max] of [['minutes', minutes, 240], ...(notify ? [] : [['waitSeconds', waitSeconds, MAX_WAIT_SECONDS]])]) {
         if (!Number.isSafeInteger(value) || value < 1 || value > max)
             throw new Error(`${name} 는 1~${max} 정수여야 합니다.`);
     }
+    if (maxTurns !== undefined && (!Number.isSafeInteger(maxTurns) || maxTurns < 1))
+        throw new Error('maxTurns 는 1 이상의 정수여야 합니다. 상한을 없애려면 값을 주지 마세요.');
     if (!fs.existsSync(sessionPath(session)))
         throw new Error('등록되지 않은 세션입니다.');
     const repo = repoKey(cwd);
@@ -321,7 +321,7 @@ export function setDialogueMode({ session, cwd, on, notify = false, minutes = no
         if (on && s.state === 'closed')
             throw new Error('종료된 세션입니다.');
         const dialogueMode = on
-            ? { until: new Date(Date.now() + minutes * 60000).toISOString(), maxTurns, used: 0, waitSeconds, ...(notify ? { notify: true } : {}) } : undefined;
+            ? { until: new Date(Date.now() + minutes * 60000).toISOString(), ...(maxTurns === undefined ? {} : { maxTurns }), used: 0, waitSeconds, ...(notify ? { notify: true } : {}) } : undefined;
         writeJSON(sessionPath(session), { ...s, dialogueMode });
         return { session, on, ...(dialogueMode ? { dialogueMode } : {}) };
     });
@@ -374,9 +374,26 @@ export function codexTurn(transcript) {
             fs.closeSync(fd);
     }
 }
+/** Windows npm 설치본에는 셸용 codex·codex.cmd 만 있어 셸 없는 spawnSync 는 ENOENT·EINVAL 로 실패한다(2026-11-09 실측).
+ * 메시지가 셸을 거치지 않도록 PATH 에서 npm 패키지의 진입 스크립트를 찾아 Node 로 직접 실행한다. */
+export function codexCommand(env = process.env, platform = process.platform, exists = fs.existsSync) {
+    if (env.AXMAP_CODEX_BIN)
+        return [env.AXMAP_CODEX_BIN];
+    if (platform === 'win32') {
+        for (const dir of (env.PATH || env.Path || '').split(path.win32.delimiter)) {
+            if (!dir)
+                continue;
+            const script = path.win32.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+            if (exists(script))
+                return [process.execPath, script];
+        }
+    }
+    return ['codex'];
+}
 /** 공식 명령 codex queue 는 열린 Codex 앱이 받아 같은 스레드에서 실행한다. 인자 배열로 넘겨 셸 해석을 피한다. */
 export function codexQueue(thread, message) {
-    const r = spawnSync(process.env.AXMAP_CODEX_BIN || 'codex', ['queue', '--thread', thread, '--message', message], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+    const [command, ...prefix] = codexCommand();
+    const r = spawnSync(command, [...prefix, 'queue', '--thread', thread, '--message', message], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
     return r.status === 0 ? { ok: true } : { ok: false, error: (r.error?.message || r.stderr || `exit ${r.status}`).trim() };
 }
 function hookSessions() {

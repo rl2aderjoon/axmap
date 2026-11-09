@@ -150,7 +150,7 @@ axmap bridge mailbox --to <UUID> [--all]
     읽기만 합니다. --take --at checkpoint로 작업 경계에서 묶음 회수 (모델 호출 없음).
 axmap bridge flush --to <UUID> --at task-complete|test-complete|experiment-complete|checkpoint
     필요할 때만 idle 수신자에게 큐를 한 요청으로 전달. 자동 감시·중단·재전송 없음.
-axmap bridge mode --session <앱 세션 UUID> --on|--off [--notify] [--minutes 30] [--max-turns 8] [--wait-seconds 540]
+axmap bridge mode --session <앱 세션 UUID> --on|--off [--notify] [--minutes 30] [--max-turns N, 기본 상한 없음] [--wait-seconds 540]
 axmap bridge listen --session <앱 세션 UUID>
     알림 모드 세션의 메시지를 토큰 없이 기다렸다가 전달한다. Claude 세션은 Monitor 로 실행한다.
     앱(Claude 앱·Codex 앱)·codex 세션의 대화 모드. 켜면 응답이 끝날 때 상대 요청·회신을 기다렸다가 같은 대화에서 이어 갑니다.
