@@ -1,17 +1,28 @@
 {
   "agent": "claude-58e70c35",
   "task": null,
-  "intent": "Windows에서 Codex 앱 대기열 전달이 ENOENT로 실패하는 문제 수정과 1.12.1 배포 준비",
+  "intent": "axMap 1.13.0 배포 준비",
   "actor": null,
   "session": "58e70c35-release",
-  "since": "2026-11-09T01:27:32.907Z",
+  "since": "2026-11-09T02:39:25.520Z",
   "ttlMs": 1800000,
   "paths": [
-    "docs/RELEASE-1.12.1.md",
+    ".claude/commands/ax-turns.md",
+    "README.ko.md",
+    "docs/DECISIONS.md",
+    "docs/RELEASE-1.13.0.md",
+    "mcp/server.mjs",
     "package-lock.json",
     "package.json",
+    "skills/ax-turns",
     "src/app-session.mjs",
     "src/app-session.mts",
-    "test/app-session.test.mjs"
+    "src/session-status.mjs",
+    "src/session-status.mts",
+    "src/session-types.mjs",
+    "src/session-types.mts",
+    "test/app-session.test.mjs",
+    "tools/bridge.mjs",
+    "tools/setup.mjs"
   ]
 }
